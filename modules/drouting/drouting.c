@@ -35,6 +35,7 @@
 
 #include "../../evi/evi.h"
 #include "../../map.h"
+#include "../../ipc.h"
 
 #include "dr_load.h"
 #include "prefix_tree.h"
@@ -416,8 +417,7 @@ static param_export_t params[] = {
 	{"persistent_state", INT_PARAM, &dr_persistent_state      },
 	{"no_concurrent_reload",INT_PARAM, &no_concurrent_reload  },
 	{"partition_id_pvar", STR_PARAM, &partition_pvar.s},
-	{"accept_replicated_status",INT_PARAM, &accept_replicated_status },
-	{"replicate_status_to", INT_PARAM, &replicated_status_cluster },
+	{"status_replication_cluster",INT_PARAM, &dr_repl_cluster },
 	{0, 0, 0}
 };
 
@@ -457,13 +457,6 @@ static module_dependency_t *get_deps_probing_interval(param_export_t *param)
 	return alloc_module_dep(MOD_TYPE_DEFAULT, "tm", DEP_ABORT);
 }
 
-static module_dependency_t *get_deps_clusterer(param_export_t *param)
-{
-	int cluster_id = *(int *)param->param_pointer;
-	if (cluster_id <= 0)
-		return NULL;
-	return alloc_module_dep(MOD_TYPE_DEFAULT, "clusterer", DEP_ABORT);
-}
 static dep_export_t deps = {
 	{ /* OpenSIPS module dependencies */
 		{ MOD_TYPE_SQLDB, NULL, DEP_ABORT },
@@ -471,8 +464,7 @@ static dep_export_t deps = {
 	},
 	{ /* modparam dependencies */
 		{ "probing_interval", get_deps_probing_interval },
-		{ "accept_replicated_status", get_deps_clusterer},
-		{ "replicate_gw_status_to", get_deps_clusterer},
+		{ "status_replication_cluster", get_deps_clusterer},
 		{ NULL, NULL },
 	},
 };
@@ -608,8 +600,8 @@ error:
 static void dr_gw_status_changed(struct head_db *p, pgw_t *gw)
 {
 	/* do BIN replication if configured */
-	if (replicated_status_cluster > 0)
-		replicate_dr_gw_status_event( p, gw, replicated_status_cluster);
+	if (dr_repl_cluster > 0)
+		replicate_dr_gw_status_event( p, gw, dr_repl_cluster);
 
 	/* raise the event */
 	dr_raise_event( p, gw);
@@ -633,7 +625,7 @@ static int dr_disable_w_part(struct sip_msg *req, struct head_db *current_partit
 
 	gw = get_gw_by_id( (*current_partition->rdata)->pgw_tree, &id_val.s );
 	if (gw!=NULL && (gw->flags&DR_DST_STAT_DSBL_FLAG)==0) {
-		LM_INFO(" partition : %.*s\n", current_partition->partition.len,
+		LM_DBG("partition : %.*s\n", current_partition->partition.len,
 				current_partition->partition.s);
 		gw->flags |= DR_DST_STAT_DSBL_FLAG|DR_DST_STAT_DIRT_FLAG;
 		dr_gw_status_changed( current_partition, gw);
@@ -1530,7 +1522,7 @@ static int dr_init(void)
 
 		if( (*head_db_end->db_con =
 					head_db_end->db_funcs.init(&head_db_end->db_url)) == 0) {
-			LM_ERR("Cand't load db ulr %.*s", head_db_end->db_url.len,
+			LM_ERR("failed to connect to db url %.*s", head_db_end->db_url.len,
 					head_db_end->db_url.s);
 			return -1;
 		}
@@ -1706,21 +1698,21 @@ skip:
 		goto error;
 	}
 
-	if (replicated_status_cluster < 0) {
-		LM_ERR("Invalid replicated_status_cluster, must be 0 or "
+	if (dr_repl_cluster < 0) {
+		LM_ERR("Invalid status_replication_cluster, must be 0 or "
 			"a positive cluster id\n");
 		return -1;
 	}
 
-	if( (replicated_status_cluster > 0 || accept_replicated_status > 0)
-		&& load_clusterer_api(&clusterer_api)!=0) {
+	if (dr_repl_cluster && load_clusterer_api(&clusterer_api)!=0) {
 		LM_DBG("failed to find clusterer API - is clusterer module loaded?\n");
 		return -1;
 	}
 
 	/* register handler for processing droutimg packets to the clusterer module */
-	if (accept_replicated_status > 0 && clusterer_api.register_module(repl_dr_module_name.s,
-		receive_dr_binary_packet, 1, &accept_replicated_status, 1) < 0) {
+	if (dr_repl_cluster > 0 &&
+		clusterer_api.register_capability(&status_repl_cap, receive_dr_binary_packet,
+		NULL, dr_repl_cluster, 0, NODE_CMP_ANY) < 0) {
 		LM_ERR("cannot register binary packet callback to clusterer module!\n");
 		return -1;
 	}
@@ -1780,33 +1772,39 @@ static int db_load_head(struct head_db *x) {
 }
 
 
+/* simple wrapper over dr_reload_data to make it compatible with ipc_rpc_f,
+ * so triggerable via IPC */
+static void rpc_dr_reload_data(int sender_id, void *unused)
+{
+	dr_reload_data();
+}
+
 
 static int dr_child_init(int rank)
 {
+	struct head_db *head_db_it = head_db_start;
+
 	/* We need DB connection from:
-	 * 	 - attendant - for shutdown, flushingmstate
+	 *   - attendant - for shutdown, flushingmstate
 	 *   - timer - may trigger routes with dr group
 	 *   - workers - execute routes with dr group
 	 *   - module's proc - ??? */
-	LM_DBG("Child initialization\n");
 	if (rank==PROC_TCP_MAIN || rank==PROC_BIN)
 		return 0;
 
-	struct head_db *head_db_it = head_db_start;
-
+	LM_DBG("Child initialization on rank %d \n",rank);
 	while( head_db_it!=NULL ) {
 		db_load_head( head_db_it );
 		head_db_it = head_db_it->next;
-
-		LM_DBG("Child iterates\n");
 	}
 
-	/* child 1 load the routing info */
-	if ( (rank==1) && dr_reload_data()!=0 ) {
-		LM_CRIT("failed to load routing data\n");
+	/* if child 1, send a job for itself to run the data loading after
+	 * the init sequance is done */
+	if ( (rank==1) && ipc_send_rpc( process_no, rpc_dr_reload_data, NULL)<0) {
+		LM_CRIT("failed to RPC the data loading\n");
 		return -1;
 	}
-	srand(getpid()+time(0)+rank);
+
 	return 0;
 }
 
@@ -2718,6 +2716,8 @@ static int do_routing(struct sip_msg* msg, dr_part_group_t * part_group,
 		destroy_avps( 0, current_partition->gw_attrs_avp, 1);
 		destroy_avps( 0, current_partition->carrier_attrs_avp, 1);
 
+		if ((current_partition->carrier_id_avp)!=-1)
+			destroy_avps( 0, current_partition->carrier_id_avp, 1);
 		if ((current_partition->gw_priprefix_avp)!=-1)
 			destroy_avps( 0, current_partition->gw_priprefix_avp, 1);
 		if ((current_partition->rule_id_avp)!=-1)
@@ -3157,13 +3157,13 @@ static int route2_carrier(struct sip_msg* msg, char* part_carrier,
 	pgw_list_t *cdst;
 	pcr_t *cr;
 	pv_value_t pv_val;
-	str ruri, id;
+	str ruri, id, ids;
 	str next_carrier_attrs = {NULL, 0};
 	str next_gw_attrs = {NULL, 0};
 	int j,n;
 	dr_part_old_t * part_cr;
 	struct head_db * current_partition = 0;
-	char *ruri_buf=NULL;
+	char *ruri_buf=NULL, *p;
 
 	part_cr = (dr_part_old_t*)part_carrier;
 	if(use_partitions) {
@@ -3188,7 +3188,7 @@ static int route2_carrier(struct sip_msg* msg, char* part_carrier,
 	}
 
 	/* get the carrier ID */
-	if (fixup_get_svalue(msg, (gparam_p)part_cr->gw_or_cr, &id) != 0) {
+	if (fixup_get_svalue(msg, (gparam_p)part_cr->gw_or_cr, &ids) != 0) {
 		LM_ERR("failed to get string value for carrier ID\n");
 		return -1;
 	}
@@ -3204,6 +3204,8 @@ static int route2_carrier(struct sip_msg* msg, char* part_carrier,
 	destroy_avps( 0, current_partition->rule_attrs_avp, 1);
 	destroy_avps( 0, current_partition->carrier_attrs_avp, 1);
 
+	if (current_partition->carrier_id_avp!=-1)
+		destroy_avps( 0, current_partition->carrier_id_avp, 1);
 	if (current_partition->gw_priprefix_avp!=-1)
 		destroy_avps( 0, current_partition->gw_priprefix_avp, 1);
 	if (current_partition->rule_id_avp!=-1)
@@ -3230,96 +3232,120 @@ static int route2_carrier(struct sip_msg* msg, char* part_carrier,
 	/* ref the data for reading */
 	lock_start_read( current_partition->ref_lock );
 
-	cr = get_carrier_by_id( (*current_partition->rdata)->carriers_tree, &id );
-	if (cr==NULL) {
-		LM_ERR("carrier <%.*s> was not found\n", id.len, id.s );
-		goto error;
-	}
+	/* how many gws will be added */
+	n = 0;
 
-	/* is carrier turned off ? */
-	if( cr->flags & DR_CR_FLAG_IS_OFF ) {
-		LM_NOTICE("routing to disabled carrier <%.*s> failed\n",
+	while (ids.len>0) {
+
+		/* extract a new carrier ID */
+		id.s = ids.s;
+		p = q_memchr( ids.s, ',', ids.len);
+		id.len = (p==NULL)?ids.len:(p-ids.s);
+
+		/* adjust remaing 'ids' buffer */
+		ids.len -= id.len + (p?1:0);
+		ids.s += id.len + (p?1:0);
+
+		str_trim_spaces_lr( id );
+		if (id.len==0) {
+			/* empty value */
+			continue;
+		}
+
+		LM_DBG("found and looking for carrier id <%.*s>,len=%d\n",id.len, id.s, id.len);
+		cr = get_carrier_by_id( (*current_partition->rdata)->carriers_tree, &id );
+		if (cr==NULL) {
+			LM_ERR("carrier <%.*s> was not found, skipping...\n", id.len, id.s );
+			continue;
+		}
+
+		/* is carrier turned off ? */
+		if( cr->flags & DR_CR_FLAG_IS_OFF ) {
+			LM_DBG("carrier <%.*s> is disabled, skipping..,\n",
 				cr->id.len, cr->id.s);
-		goto error;
-	}
+			continue;
+		}
 
-	/* any GWs for the carrier? */
-	if (cr->pgwl==NULL)
-		goto no_gws;
+		/* any GWs for the carrier? */
+		if (cr->pgwl==NULL)
+			continue;
 
-	/* sort the gws of the carrier */
-	j = sort_rt_dst( cr->pgwl, cr->pgwa_len, cr->flags&DR_CR_FLAG_WEIGHT,
-			carrier_idx);
-	if (j!=0) {
-		LM_ERR("failed to sort gws for carrier <%.*s>, skipping\n",
-				cr->id.len, cr->id.s);
-		goto error;
-	}
+		/* sort the gws of the carrier */
+		j = sort_rt_dst( cr->pgwl, cr->pgwa_len, cr->flags&DR_CR_FLAG_WEIGHT,
+				carrier_idx);
+		if (j!=0) {
+			LM_ERR("failed to sort gws for carrier <%.*s>, skipping\n",
+					cr->id.len, cr->id.s);
+			continue;
+		}
 
-	/* iterate through the list of GWs provided by carrier */
-	for ( j=0,n=0 ; j<cr->pgwa_len ; j++ ) {
+		/* iterate through the list of GWs provided by carrier */
+		for ( j=0 ; j<cr->pgwa_len ; j++ ) {
 
-		cdst = &cr->pgwl[carrier_idx[j]];
+			cdst = &cr->pgwl[carrier_idx[j]];
 
-		/* is gateway disabled ? */
-		if (cdst->dst.gw->flags & DR_DST_STAT_DSBL_FLAG ) {
-			/*ignore it*/
-		} else {
-			/* add gateway to usage list */
-			if ( push_gw_for_usage(msg, current_partition, &uri, cdst->dst.gw,
-						&cr->id, &cr->attrs, n ) ) {
-				LM_ERR("failed to use gw <%.*s>, skipping\n",
-						cdst->dst.gw->id.len, cdst->dst.gw->id.s);
+			/* is gateway disabled ? */
+			if (cdst->dst.gw->flags & DR_DST_STAT_DSBL_FLAG ) {
+				/*ignore it*/
 			} else {
-				n++;
+				/* add gateway to usage list */
+				if ( push_gw_for_usage(msg, current_partition, &uri, cdst->dst.gw,
+						&cr->id, &cr->attrs, n ) ) {
+					LM_ERR("failed to use gw <%.*s>, skipping\n",
+						cdst->dst.gw->id.len, cdst->dst.gw->id.s);
+				} else {
+					n++;
 
-				/* only export the top-most carrier/gw
-				 * attributes in the script */
-				if (n == 1) {
-					next_carrier_attrs = cr->attrs;
-					next_gw_attrs = cdst->dst.gw->attrs;
+					/* only export the top-most carrier/gw
+					 * attributes in the script */
+					if (n == 1) {
+						next_carrier_attrs = cr->attrs;
+						next_gw_attrs = cdst->dst.gw->attrs;
+					}
+
+					/* use only first valid GW */
+					if (cr->flags&DR_CR_FLAG_FIRST)
+						break;
 				}
-
-				/* use only first valid GW */
-				if (cr->flags&DR_CR_FLAG_FIRST)
-					break;
 			}
+
 		}
 
 	}
 
 	if( n < 1) {
-		LM_ERR("All the gateways are disabled\n");
-		goto error;
-	}
 
-	pv_val.flags = PV_VAL_STR;
+		LM_DBG("No GW added (not found or found disabled)\n");
 
-	if (gw_attrs_spec) {
+	} else {
+
 		pv_val.flags = PV_VAL_STR;
-		pv_val.rs = !next_gw_attrs.s ? attrs_empty : next_gw_attrs;
-		if (pv_set_value(msg, gw_attrs_spec, 0, &pv_val) != 0) {
-			LM_ERR("failed to set value for gateway attrs pvar\n");
-			goto error;
-		}
-	}
 
-	if (carrier_attrs_spec) {
-		pv_val.flags = PV_VAL_STR;
-		pv_val.rs = !next_carrier_attrs.s ? attrs_empty : next_carrier_attrs;
-		if (pv_set_value(msg, carrier_attrs_spec, 0, &pv_val) != 0) {
-			LM_ERR("failed to set value for carrier attrs pvar\n");
-			goto error;
+		if (gw_attrs_spec) {
+			pv_val.flags = PV_VAL_STR;
+			pv_val.rs = !next_gw_attrs.s ? attrs_empty : next_gw_attrs;
+			if (pv_set_value(msg, gw_attrs_spec, 0, &pv_val) != 0) {
+				LM_ERR("failed to set value for gateway attrs pvar\n");
+				goto error;
+			}
 		}
-	}
 
-no_gws:
+		if (carrier_attrs_spec) {
+			pv_val.flags = PV_VAL_STR;
+			pv_val.rs = !next_carrier_attrs.s ? attrs_empty : next_carrier_attrs;
+			if (pv_set_value(msg, carrier_attrs_spec, 0, &pv_val) != 0) {
+				LM_ERR("failed to set value for carrier attrs pvar\n");
+				goto error;
+			}
+		}
+
+	}
 
 	/* we are done reading -> unref the data */
 	lock_stop_read( current_partition->ref_lock );
 	if (ruri_buf) pkg_free(ruri_buf);
 
-	return 1;
+	return (n==0)?-1:1;
 error:
 	/* we are done reading -> unref the data */
 	lock_stop_read( current_partition->ref_lock );
@@ -4120,6 +4146,8 @@ static int _is_dr_gw_w_part(struct sip_msg* msg, char * part, char* flags_pv,
 		}
 	}
 
+	lock_start_read( current_partition->ref_lock );
+
 	if(current_partition->rdata!=NULL && *current_partition->rdata!=NULL) {
 		for (map_first((*current_partition->rdata)->pgw_tree, &gw_it);
 			iterator_is_valid(&gw_it); iterator_next(&gw_it)) {
@@ -4191,11 +4219,13 @@ static int _is_dr_gw_w_part(struct sip_msg* msg, char * part, char* flags_pv,
 					}
 				}
 end:
+				lock_stop_read( current_partition->ref_lock );
 				return 1;
 			}
 		}
 	}
 
+	lock_stop_read( current_partition->ref_lock );
 
 	return -1;
 }
@@ -4212,7 +4242,7 @@ static int is_from_gw_1(struct sip_msg* msg, char * part)
 	if(use_partitions) {
 		return _is_dr_gw( msg, part, NULL, -1, &msg->rcv.src_ip , msg->rcv.src_port);
 	} else {
-		return _is_dr_gw(msg, NULL, NULL, (!part? -1:(int)(long)part), &msg->rcv.src_ip,
+		return _is_dr_gw(msg, NULL, NULL, (!part? -1 : *(int *)part), &msg->rcv.src_ip,
 				msg->rcv.src_port);
 	}
 }
@@ -4224,10 +4254,10 @@ static int is_from_gw_1(struct sip_msg* msg, char * part)
 static int is_from_gw_2(struct sip_msg* msg, char * part, char* type_s)
 {
 	if(use_partitions) {
-		return _is_dr_gw(msg, part, NULL, (!type_s ? -1 : (int)(long)type_s),
+		return _is_dr_gw(msg, part, NULL, (!type_s ? -1 : *(int *)type_s),
 				&msg->rcv.src_ip , msg->rcv.src_port);
 	} else {
-		return _is_dr_gw(msg, NULL, type_s, (!part ? -1: (int)(long)part),
+		return _is_dr_gw(msg, NULL, type_s, (!part ? -1: *(int *)part),
 				&msg->rcv.src_ip, msg->rcv.src_port);
 	}
 }
@@ -4236,11 +4266,11 @@ static int is_from_gw_2(struct sip_msg* msg, char * part, char* type_s)
 static int is_from_gw_3(struct sip_msg* msg, char * part,char* type_s,
 		char* flags_pv) {
 	if(use_partitions) {
-		return _is_dr_gw(msg, part, flags_pv, (!type_s ? -1:(int)(long)type_s),
+		return _is_dr_gw(msg, part, flags_pv, (!type_s ? -1:*(int *)type_s),
 				&msg->rcv.src_ip, msg->rcv.src_port);
 	} else {
 		gw_attrs_spec = (pv_spec_p)flags_pv;
-		return _is_dr_gw(msg, NULL, type_s, (!part ? -1:(int)(long)part),
+		return _is_dr_gw(msg, NULL, type_s, (!part ? -1:*(int *)part),
 				&msg->rcv.src_ip, msg->rcv.src_port);
 	}
 }
@@ -4255,7 +4285,7 @@ static int is_from_gw_4(struct sip_msg* msg, char * part,char* type_s, char* fla
 
 	if(use_partitions) {
 		return _is_dr_gw( msg, part, flags_pv,
-				(!type_s ? -1 : (int)(long)type_s), &msg->rcv.src_ip ,
+				(!type_s ? -1 : *(int *)type_s), &msg->rcv.src_ip ,
 				msg->rcv.src_port);
 	} else {
 		LM_ERR("Too many parameters\n");
@@ -4304,11 +4334,11 @@ static int goes_to_gw_1(struct sip_msg* msg, char * part, char* _type, char* fla
 
 	if(use_partitions) {
 		gw_attrs_spec = (pv_spec_p)gw_att;
-		return _is_dr_uri_gw(msg, part, flags_pv, (!_type ? -1 : (int)(long)_type),
+		return _is_dr_uri_gw(msg, part, flags_pv, (!_type ? -1 : *(int *)_type),
 				GET_NEXT_HOP(msg));
 	} else {
 		gw_attrs_spec = (pv_spec_p)flags_pv;
-		return _is_dr_uri_gw(msg, NULL, flags_pv, (!_type ? -1 : (int)(long)_type),
+		return _is_dr_uri_gw(msg, NULL, flags_pv, (!_type ? -1 : *(int *)_type),
 				GET_NEXT_HOP(msg));
 	}
 }
@@ -4326,29 +4356,32 @@ static int goes_to_gw_0(struct sip_msg* msg)
 /*
  * Checks if a variable (containing a SIP URI) is a GW; tests the TYPE too
  */
-static int dr_is_gw(struct sip_msg* msg, char * part, char* src_pv, char* type_s,
-		char* flags_pv, char* gw_att)
+static int dr_is_gw(struct sip_msg* msg, char * part, char* src_pv,
+									char* type_s, char* flags_pv, char* gw_att)
 {
 	pv_value_t src;
 
 	if(use_partitions) {
-		gw_attrs_spec = (pv_spec_p)gw_att;
 		if ( pv_get_spec_value(msg, (pv_spec_p)src_pv, &src)!=0 ||
 				(src.flags&PV_VAL_STR)==0 || src.rs.len<=0) {
 			LM_ERR("failed to get string value for src\n");
 			return -1;
 		}
-		return _is_dr_uri_gw(msg, part, flags_pv, !type_s ? -1:(int)(long)type_s, &src.rs);
+		gw_attrs_spec = (pv_spec_p)gw_att;
+		return _is_dr_uri_gw(msg, part, flags_pv, !type_s ? -1:*(int *)type_s,
+			&src.rs);
 	}
 	else {
+		/* shift (as meaning) all parameters to the left one position (as
+		 * there is no partition parameter */
 		if ( pv_get_spec_value(msg, (pv_spec_p)part, &src)!=0 ||
 				(src.flags&PV_VAL_STR)==0 || src.rs.len<=0) {
 			LM_ERR("failed to get string value for src\n");
 			return -1;
 		}
 		gw_attrs_spec = (pv_spec_p)flags_pv;
-		return _is_dr_uri_gw(msg, NULL, flags_pv ,!type_s ? -1:(int)(long)type_s
-				,&src.rs);
+		return _is_dr_uri_gw(msg, NULL, type_s ,!src_pv ? -1:*(int *)src_pv,
+			&src.rs);
 	}
 }
 
@@ -4622,9 +4655,9 @@ static struct mi_root* mi_dr_cr_status(struct mi_root *cmd, void *param)
 	}
 	if (old_flags!=cr->flags) {
 		cr->flags |= DR_CR_FLAG_DIRTY;
-		if (replicated_status_cluster > 0)
+		if (dr_repl_cluster > 0)
 			replicate_dr_carrier_status_event( current_partition, cr,
-				replicated_status_cluster);
+				dr_repl_cluster);
 	}
 
 	rpl_tree = init_mi_tree( 200, MI_OK_S, MI_OK_LEN);
@@ -4992,15 +5025,19 @@ static struct mi_root* mi_dr_reload_status(struct mi_root *cmd_tree, void *param
 			}
 			/* display just for given partition */
 			lock_start_read(partition->ref_lock);
+			/* take care as ctime puts an '\n' at the end of the
+			 * returned string - we will get rid of it by len-1 later */
 			ch_time = ctime(&partition->time_last_update);
 			if((ans = add_mi_node_child(&rpl_tree->node, MI_DUP_VALUE,
-						MI_PART_NAME_S, MI_PART_NAME_LEN, partition->partition.s,
+						MI_PART_NAME_S, MI_PART_NAME_LEN,
+						partition->partition.s,
 						partition->partition.len)) == NULL) {
 				LM_ERR("failed to add mi_node\n");
 				goto error;
 			}
-			if(add_mi_attr(ans, MI_DUP_VALUE, MI_LAST_UPDATE_S, MI_LAST_UPDATE_LEN,
-						ch_time, strlen(ch_time)) == NULL) {
+			if(add_mi_attr(ans, MI_DUP_VALUE,
+						MI_LAST_UPDATE_S, MI_LAST_UPDATE_LEN,
+						ch_time, strlen(ch_time)-1) == NULL) {
 				LM_ERR("failed to add mi_attr\n");
 				goto error;
 			}
@@ -5025,8 +5062,9 @@ static struct mi_root* mi_dr_reload_status(struct mi_root *cmd_tree, void *param
 				LM_ERR("failed to add mi_node\n");
 				goto error;
 			}
-			if(add_mi_attr(ans, MI_DUP_VALUE, MI_LAST_UPDATE_S, MI_LAST_UPDATE_LEN,
-						ch_time, strlen(ch_time)) == NULL) {
+			if(add_mi_attr(ans, MI_DUP_VALUE,
+						MI_LAST_UPDATE_S, MI_LAST_UPDATE_LEN,
+						ch_time, strlen(ch_time)-1) == NULL) {
 				LM_ERR("failed to add attr to mi_node\n");
 				goto error;
 			}
@@ -5039,8 +5077,9 @@ static struct mi_root* mi_dr_reload_status(struct mi_root *cmd_tree, void *param
 
 		lock_start_read(partition->ref_lock);
 		ch_time = ctime(&partition->time_last_update);
-		if((ans = add_mi_node_child(&rpl_tree->node, 0, MI_LAST_UPDATE_S,
-						MI_LAST_UPDATE_LEN, ch_time, strlen(ch_time))) == NULL) {
+		if((ans = add_mi_node_child(&rpl_tree->node, 0,
+						MI_LAST_UPDATE_S, MI_LAST_UPDATE_LEN,
+						ch_time, strlen(ch_time)-1)) == NULL) {
 			LM_ERR("failed to add mi_node\n");
 			goto error;
 		}

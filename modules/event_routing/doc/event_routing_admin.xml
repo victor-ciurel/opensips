@@ -4,7 +4,7 @@
 
 	<title>&adminguide;</title>
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 	The Event (based) Routing module, or shortly the EBR module, provides a 
@@ -63,7 +63,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -96,7 +96,7 @@
 	</section>
 
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
 		<para>
 		This module does not provide any script parameters.
@@ -104,10 +104,10 @@
 	</section>
 
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
 
-	<section>
+	<section id="func_notify_on_event" xreflabel="notify_on_event()">
 		<title>
 		<function moreinfo="none">notify_on_event(event, filter, route, timeout)</function>
 		</title>
@@ -182,7 +182,7 @@ route[reg_done] {
 	<section>
 	<title>Exported Asynchronous Functions</title>
 
-	<section>
+	<section id="afunc_wait_for_event" xreflabel="wait_for_event()">
 		<title>
 		<function moreinfo="none">wait_for_event(event,filter,timeout)</function>
 		</title>
@@ -272,7 +272,7 @@ route[route_to_user] {
 
 route[fork_call]
 {
-    xlog("user $avp(aor) registered the a new "
+    xlog("user $avp(aor) registered a new "
         "contact $avp(uri), injecting\n");
     # take the contact described by the E_UL_CONTACT_INSERT
     # event and inject it as a new branch into the original

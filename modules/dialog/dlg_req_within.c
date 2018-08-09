@@ -43,7 +43,7 @@
 #include "dlg_db_handler.h"
 #include "dlg_profile.h"
 #include "dlg_handlers.h"
-
+#include "dlg_replication.h"
 
 extern str dlg_extra_hdrs;
 
@@ -216,7 +216,8 @@ error:
 }
 
 
-static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req, int extra_unref)
+static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req,
+																int is_active)
 {
 	int event, old_state, new_state, unref, ret;
 	struct sip_msg *fake_msg=NULL;
@@ -225,8 +226,7 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req, int extra_
 
 	event = DLG_EVENT_REQBYE;
 	next_state_dlg(dlg, event, DLG_DIR_DOWNSTREAM, &old_state, &new_state,
-			&unref, dlg->legs_no[DLG_LEG_200OK], 0);
-	unref += extra_unref;
+			&unref, dlg->legs_no[DLG_LEG_200OK], is_active);
 
 	if(new_state == DLG_STATE_DELETED && old_state != DLG_STATE_DELETED){
 
@@ -234,10 +234,8 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req, int extra_
 			dlg->h_entry, dlg->h_id);
 
 		/*destroy linkers */
-		dlg_lock_dlg(dlg);
-		destroy_linkers(dlg->profile_links, 0);
-		dlg->profile_links = NULL;
-		dlg_unlock_dlg(dlg);
+		destroy_linkers(dlg, 0);
+		remove_dlg_prof_table(dlg,0);
 
 		/* remove from timer */
 		ret = remove_dlg_timer(&dlg->tl);
@@ -264,8 +262,9 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req, int extra_
 			/* set new msg & processing context */
 			if (push_new_processing_context( dlg, &old_ctx, &new_ctx, &fake_msg)==0) {
 				/* dialog terminated (BYE) */
-				run_dlg_callbacks( DLGCB_TERMINATED, dlg, fake_msg,
-					DLG_DIR_NONE, NULL, 0);
+				if (is_active)
+					run_dlg_callbacks( DLGCB_TERMINATED, dlg, fake_msg,
+						DLG_DIR_NONE, NULL, 0);
 				/* reset the processing context */
 				if (current_processing_ctx == NULL)
 					*new_ctx = NULL;
@@ -276,8 +275,9 @@ static void dual_bye_event(struct dlg_cell* dlg, struct sip_msg *req, int extra_
 		} else {
 			/* we should have the msg and context from upper levels */
 			/* dialog terminated (BYE) */
-			run_dlg_callbacks( DLGCB_TERMINATED, dlg, req,
-				DLG_DIR_NONE, NULL, 0);
+			if (is_active)
+				run_dlg_callbacks( DLGCB_TERMINATED, dlg, req,
+					DLG_DIR_NONE, NULL, 0);
 		}
 
 		LM_DBG("first final reply\n");
@@ -312,11 +312,18 @@ void bye_reply_cb(struct cell* t, int type, struct tmcb_params* ps)
 		return;
 	}
 
-	LM_DBG("receiving a final reply %d\n",ps->code);
+	LM_DBG("receiving a final reply %d for transaction %p, dialog %p\n",
+		ps->code, t, (*(ps->param)));
 	/* mark the transaction as belonging to this dialog */
 	t->dialog_ctx = *(ps->param);
 
-	dual_bye_event( (struct dlg_cell *)(*(ps->param)), ps->req, 1);
+	dual_bye_event((struct dlg_cell *)(*(ps->param)), ps->req, 1);
+}
+
+
+void bye_reply_cb_release(void *param)
+{
+	unref_dlg( (struct dlg_cell *)(param), 1);
 }
 
 
@@ -374,8 +381,8 @@ static inline int send_leg_bye(struct dlg_cell *cell, int dst_leg, int src_leg,
 		goto err;
 	}
 
-	LM_DBG("sending BYE to %s (%d)\n",
-		(dst_leg==DLG_CALLER_LEG)?"caller":"callee", dst_leg);
+	LM_DBG("sending BYE on dialog %p to %s (%d)\n",
+		cell, (dst_leg==DLG_CALLER_LEG)?"caller":"callee", dst_leg);
 
 	/* set new processing context */
 	if (push_new_processing_context( cell, &old_ctx, &new_ctx, NULL)!=0)
@@ -392,7 +399,7 @@ static inline int send_leg_bye(struct dlg_cell *cell, int dst_leg, int src_leg,
 		dialog_info,   /* dialog structure*/
 		bye_reply_cb,  /* callback function*/
 		(void*)cell,   /* callback parameter*/
-		NULL);         /* release function*/
+		bye_reply_cb_release);         /* release function*/
 
 	/* reset the processing contect */
 	if (current_processing_ctx == NULL)
@@ -421,7 +428,7 @@ err:
 /* sends BYE in both directions
  * returns 0 if both BYEs were successful
  */
-int dlg_end_dlg(struct dlg_cell *dlg, str *extra_hdrs)
+int dlg_end_dlg(struct dlg_cell *dlg, str *extra_hdrs, int send_byes)
 {
 	str str_hdr = {NULL,0};
 	struct cell* t;
@@ -429,7 +436,8 @@ int dlg_end_dlg(struct dlg_cell *dlg, str *extra_hdrs)
 	int callee;
 
 	/* lookup_dlg has incremented the reference count !! */
-	if (dlg->state == DLG_STATE_UNCONFIRMED || dlg->state == DLG_STATE_EARLY) {
+	if (send_byes &&
+		(dlg->state == DLG_STATE_UNCONFIRMED || dlg->state == DLG_STATE_EARLY)) {
 		/* locate initial transaction */
 		LM_DBG("trying to find transaction with hash_index = %u and label = %u\n",
 				dlg->initial_t_hash_index,dlg->initial_t_label);
@@ -449,23 +457,29 @@ int dlg_end_dlg(struct dlg_cell *dlg, str *extra_hdrs)
 		return 0;
 	}
 
-	if ((build_extra_hdr(dlg, extra_hdrs, &str_hdr)) != 0){
+	if (send_byes && (build_extra_hdr(dlg, extra_hdrs, &str_hdr)) != 0){
 		LM_ERR("failed to create extra headers\n");
 		return -1;
 	}
 
 	callee = callee_idx(dlg);
-	if ( send_leg_bye( dlg, DLG_CALLER_LEG, callee, &str_hdr)!=0) {
+	if (send_byes && send_leg_bye(dlg, DLG_CALLER_LEG, callee, &str_hdr)!=0) {
 		res--;
 	}
-	if (send_leg_bye( dlg, callee, DLG_CALLER_LEG, &str_hdr)!=0 ) {
+	if (send_byes && send_leg_bye(dlg, callee, DLG_CALLER_LEG, &str_hdr)!=0 ) {
 		res--;
 	}
 
-	for( i=res ; i<0 ; i++)
-		dual_bye_event( dlg, NULL, 0);
+	if (!send_byes) {
+		dual_bye_event(dlg, NULL, 0);
+		dual_bye_event(dlg, NULL, 0);
+	} else
+		for(i=res ; i<0 ; i++)
+			dual_bye_event(dlg, NULL, 1);
 
-	pkg_free(str_hdr.s);
+	if (str_hdr.s)
+		pkg_free(str_hdr.s);
+
 	return res;
 }
 
@@ -482,6 +496,7 @@ struct mi_root * mi_terminate_dlg(struct mi_root *cmd_tree, void *param ){
 	char *msg;
 	char *end;
 	char bkp;
+	int shtag_state = 1;
 
 
 	if( d_table ==NULL)
@@ -529,10 +544,23 @@ struct mi_root * mi_terminate_dlg(struct mi_root *cmd_tree, void *param ){
 	}
 
 	if (dlg) {
+		if (dialog_repl_cluster) {
+			shtag_state = get_shtag_state(dlg);
+			if (shtag_state == -1) {
+				unref_dlg(dlg, 1);
+				return init_mi_tree(403, MI_DLG_OPERATION_ERR,
+										MI_DLG_OPERATION_ERR_LEN);
+			} else if (shtag_state == 0) {
+				unref_dlg(dlg, 1);
+				return init_mi_tree(403, MI_DIALOG_BACKUP_ERR,
+										MI_DIALOG_BACKUP_ERR_LEN);
+			}
+		}
+
 		/* lookup_dlg has incremented the reference count !! */
 		init_dlg_term_reason(dlg,"MI Termination",sizeof("MI Termination")-1);
 
-		if ( dlg_end_dlg( dlg, mi_extra_hdrs) ) {
+		if (dlg_end_dlg(dlg, mi_extra_hdrs, 1) ) {
 			status = 500;
 			msg = MI_DLG_OPERATION_ERR;
 			msg_len = MI_DLG_OPERATION_ERR_LEN;

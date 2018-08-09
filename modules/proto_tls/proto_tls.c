@@ -32,9 +32,6 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
  *
  *
- * History:
- * -------
- *  2015-02-12  first version (bogdan)
  */
 
 #include <openssl/ui.h>
@@ -42,6 +39,8 @@
 #include <openssl/opensslv.h>
 #include <openssl/err.h>
 
+#include <sys/types.h>
+#include <netinet/in.h>
 #include <netinet/in_systm.h>
 #include <netinet/tcp.h>
 #include <netinet/ip.h>
@@ -116,7 +115,12 @@ static struct mi_root* tls_trace_mi(struct mi_root* cmd, void* param );
 static int w_tls_blocking_write(struct tcp_connection *c, int fd, const char *buf,
 																	size_t len)
 {
-	return tls_blocking_write(c, fd, buf, len, &tls_mgm_api);
+	int ret;
+
+	lock_get(&c->write_lock);
+	ret = tls_blocking_write(c, fd, buf, len, &tls_mgm_api);
+	lock_release(&c->write_lock);
+	return ret;
 }
 
 /* buffer to be used for reading all TCP SIP messages
@@ -341,7 +345,7 @@ static void proto_tls_conn_clean(struct tcp_connection* c)
 		c->proto_data = NULL;
 	}
 
-	tls_conn_clean(c);
+	tls_conn_clean(c, &tls_mgm_api);
 }
 
 
@@ -483,7 +487,9 @@ send_it:
 
 	LM_DBG("sending via fd %d...\n",fd);
 
+	lock_get(&c->write_lock);
 	n = tls_blocking_write(c, fd, buf, len, &tls_mgm_api);
+	lock_release(&c->write_lock);
 	tcp_conn_set_lifetime( c, tcp_con_lifetime);
 
 	LM_DBG("after write: c= %p n=%d fd=%d\n",c, n, fd);

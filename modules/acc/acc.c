@@ -303,8 +303,7 @@ int acc_log_cdrs(struct dlg_cell *dlg, struct sip_msg *msg, acc_ctx_t* ctx)
 		acc_env.text.len, acc_env.text.s,(unsigned long)ctx->created,
 		(unsigned long)start_time.tv_sec,
 		(unsigned long)(ctx->bye_time.tv_sec-start_time.tv_sec),
-		(unsigned long)((ctx->bye_time.tv_sec-start_time.tv_sec)*1000
-							+(ctx->bye_time.tv_usec-start_time.tv_usec)%1000),
+		(unsigned long)TIMEVAL_MS_DIFF(start_time, ctx->bye_time),
 		(unsigned long)(start_time.tv_sec - ctx->created), log_msg);
 
 	res = 1;
@@ -539,8 +538,11 @@ int acc_db_request( struct sip_msg *rq, struct sip_msg *rpl,
 {
 	static db_ps_t my_ps_ins = NULL;
 	static db_ps_t my_ps_ins2 = NULL;
+	static db_ps_t my_ps_ins3 = NULL;
 	static db_ps_t my_ps = NULL;
 	static db_ps_t my_ps2 = NULL;
+	static db_ps_t my_ps3 = NULL;
+	db_ps_t *ps;
 	int m;
 	int n = 0;
 	int i, j;
@@ -585,8 +587,25 @@ int acc_db_request( struct sip_msg *rq, struct sip_msg *rpl,
 	}
 
 	acc_dbf.use_table(db_handle, &acc_env.text/*table*/);
-	CON_PS_REFERENCE(db_handle) = (ctx && cdr_flag) ?
-		(ins_list? &my_ps_ins2:&my_ps2) : (ins_list? &my_ps_ins:&my_ps);
+	if (ctx && cdr_flag) {
+		if (ins_list)
+			ps = &my_ps_ins2; /* CDR to known table */
+		else
+			ps = &my_ps2; /* CDR to custom table */
+	} else if (ctx) {
+		if (ins_list)
+			ps = &my_ps_ins; /* normal acc to known table */
+		else
+			ps = &my_ps; /* normal acc to custom table */
+	} else {
+		/* no ctx - no extra */
+		if (ins_list)
+			ps = &my_ps_ins3;
+		else
+			ps = &my_ps3;
+	}
+
+	CON_PS_REFERENCE(db_handle) = ps;
 
 
 	/* multi-leg columns */
@@ -677,7 +696,7 @@ int acc_db_cdrs(struct dlg_cell *dlg, struct sip_msg *msg, acc_ctx_t* ctx)
 	VAL_INT(db_vals_cdrs+ret+nr_leg_vals+3) =
 		ctx->bye_time.tv_sec - start_time.tv_sec;
 	VAL_INT(db_vals_cdrs+ret+nr_leg_vals+4) =
-		(ctx->bye_time.tv_sec-start_time.tv_sec)*1000+(ctx->bye_time.tv_usec-start_time.tv_usec)%1000;
+		TIMEVAL_MS_DIFF(start_time, ctx->bye_time);
 
 	total = ret + 5;
 	acc_dbf.use_table(db_handle, &table);
@@ -727,22 +746,6 @@ end:
 	if (leg_s.s)
 		pkg_free(leg_s.s);
 	return res;
-}
-
-/************ AAA PROTOCOLS helper functions **************/
-inline static uint32_t phrase2code(str *phrase)
-{
-	uint32_t code;
-	int i;
-
-	if (phrase->len<3) return 0;
-	code=0;
-	for (i=0;i<3;i++) {
-		if (!(phrase->s[i]>='0' && phrase->s[i]<'9'))
-				return 0;
-		code=code*10+phrase->s[i]-'0';
-	}
-	return code;
 }
 
 
@@ -989,7 +992,7 @@ int acc_aaa_cdrs(struct dlg_cell *dlg, struct sip_msg *msg, acc_ctx_t* ctx)
 	/* add duration and setup values */
 	av_type = (uint32_t)(ctx->bye_time.tv_sec - start_time.tv_sec);
 	ADD_AAA_AVPAIR( offset + nr_leg_vals, &av_type, -1);
-	av_type = (uint32_t)((ctx->bye_time.tv_sec-start_time.tv_sec)*1000+(ctx->bye_time.tv_usec-start_time.tv_usec)%1000);
+	av_type = (uint32_t)TIMEVAL_MS_DIFF(start_time, ctx->bye_time);
 	ADD_AAA_AVPAIR( offset + nr_leg_vals + 1, &av_type, -1);
 	av_type = (uint32_t)(start_time.tv_sec - ctx->created);
 	ADD_AAA_AVPAIR( offset + nr_leg_vals + 2, &av_type, -1);
@@ -1207,6 +1210,7 @@ int acc_evi_request( struct sip_msg *rq, struct sip_msg *rpl, int cdr_flag)
 			if(evi_param_set_str(evi_params[i],
 						&ctx->extra_values[extra->tag_idx].value) < 0) {
 				LM_ERR("cannot set acc extra parameter\n");
+				accX_unlock(&ctx->lock);
 				return -1;
 			}
 
@@ -1298,8 +1302,8 @@ int acc_evi_cdrs(struct dlg_cell *dlg, struct sip_msg *msg, acc_ctx_t* ctx)
 		LM_ERR("cannot set duration parameter\n");
 		goto end;
 	}
-	aux_time = (ctx->bye_time.tv_sec-start_time.tv_sec)*1000
-					+ (ctx->bye_time.tv_usec-start_time.tv_usec)%1000;
+
+	aux_time = TIMEVAL_MS_DIFF(start_time, ctx->bye_time);
 	if (evi_param_set_int(evi_params[ret+nr_leg_vals+2], &aux_time) < 0) {
 		LM_ERR("cannot set duration parameter\n");
 		goto end;

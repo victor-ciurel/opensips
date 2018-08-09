@@ -316,7 +316,7 @@ static int do_action_set_adv_address(struct sip_msg *msg, struct action *a)
 	int ret = 1; /* continue processing */
 
 	if (a->elem[0].type != STR_ST) {
-		report_programming_bug("set_advertised_address type %d", a->elem[0].type);
+		LM_BUG("set_advertised_address type %d", a->elem[0].type);
 		ret = E_BUG;
 		goto out;
 	}
@@ -353,7 +353,7 @@ static int do_action_set_adv_port(struct sip_msg *msg, struct action *a)
 	int ret = 1;
 
 	if (a->elem[0].type != STR_ST) {
-		report_programming_bug("set_advertised_port type %d", a->elem[0].type);
+		LM_BUG("set_advertised_port type %d", a->elem[0].type);
 		ret = E_BUG;
 		goto out;
 	}
@@ -1371,7 +1371,6 @@ int do_action(struct action* a, struct sip_msg* msg)
 				spec = (pv_spec_t*)a->elem[2].u.data;
 				if (pv_set_value(msg, spec, 0, &val) < 0) {
 					LM_ERR("cannot set the variable value\n");
-					pkg_free(aux.s);
 					return -1;
 				}
 			}
@@ -1569,7 +1568,7 @@ int do_action(struct action* a, struct sip_msg* msg)
 							}
 
 							switch (cdb_reply[i][j].type) {
-								case CDB_INT:
+								case CDB_INT32:
 									avp_val.n = cdb_reply[i][j].val.n;
 									break;
 								case CDB_STR:
@@ -1607,9 +1606,10 @@ next_avp:
 			script_trace("core", "xdbg", msg, a->file, a->line) ;
 			if (a->elem[0].type == SCRIPTVAR_ELEM_ST)
 			{
-				if (xdbg(msg, a->elem[0].u.data, val.rs.s) < 0)
+				ret = xdbg(msg, a->elem[0].u.data, val.rs.s);
+				if (ret < 0)
 				{
-					LM_ALERT("Cannot print message\n");
+					LM_ERR("error while printing xdbg message\n");
 					break;
 				}
 			}
@@ -1635,9 +1635,10 @@ next_avp:
 					ret=E_BUG;
 					break;
 				}
-				if (xlog_2(msg,a->elem[0].u.data, a->elem[1].u.data) < 0)
+				ret = xlog_2(msg,a->elem[0].u.data, a->elem[1].u.data);
+				if (ret < 0)
 				{
-					LM_ALERT("Cannot print xlog debug message\n");
+					LM_ERR("error while printing xlog message\n");
 					break;
 				}
 			}
@@ -1649,9 +1650,10 @@ next_avp:
 					ret=E_BUG;
 					break;
 				}
-				if (xlog_1(msg,a->elem[0].u.data, val.rs.s) < 0)
+				ret = xlog_1(msg,a->elem[0].u.data, val.rs.s);
+				if (ret < 0)
 				{
-					LM_ALERT("Cannot print xlog debug message\n");
+					LM_ERR("error while printing xlog message\n");
 					break;
 				}
 			}
@@ -1843,6 +1845,8 @@ next_avp:
 					}
 					if(aitem->elem[2].u.number==1)
 						break;
+					else if (!aitem->next)
+						cmatch = 0;
 				}
 				aitem = aitem->next;
 			}
@@ -1956,27 +1960,18 @@ next_avp:
 			break;
 		case SERIALIZE_BRANCHES_T:
 			script_trace("core", "serialize_branches", msg, a->file, a->line) ;
-			if (a->elem[0].type!=NUMBER_ST){
-				LM_ALERT("BUG in serialize_branches argument"
-						" type: %d\n", a->elem[0].type);
-				ret=E_BUG;
-				break;
-			}
-			if (serialize_branches(msg,(int)a->elem[0].u.number)!=0) {
+			if (serialize_branches(msg,(int)a->elem[0].u.number,
+						a->elem[1].u.data ? (int)a->elem[1].u.number : 0)!=0) {
 				LM_ERR("serialize_branches failed\n");
 				ret=E_UNSPEC;
 				break;
 			}
-			ret=1; /* continue processing */
+			ret=1;
 			break;
 		case NEXT_BRANCHES_T:
 			script_trace("core", "next_branches", msg, a->file, a->line) ;
-			if ((ret=next_branches(msg))<0) {
-				LM_ERR("next_branches failed\n");
-				ret=E_UNSPEC;
-				break;
-			}
-			/* continue processing */
+			if ((ret = next_branches(msg)) < 0)
+				LM_DBG("no more branches\n");
 			break;
 		case EQ_T:
 		case COLONEQ_T:

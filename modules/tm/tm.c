@@ -76,6 +76,7 @@
 #include "tm_load.h"
 #include "t_ctx.h"
 #include "async.h"
+#include "cluster.h"
 
 
 /* item functions */
@@ -153,7 +154,6 @@ static char pv_local_buf[PV_LOCAL_BUF_SIZE+1];
 static str uac_ctx_avp = str_init("uac_ctx");
 static int uac_ctx_avp_id;
 
-
 int pv_get_tm_branch_avp(struct sip_msg*, pv_param_t*, pv_value_t*);
 int pv_set_tm_branch_avp(struct sip_msg*, pv_param_t*, int, pv_value_t*);
 int pv_get_tm_fr_timeout(struct sip_msg*, pv_param_t *, pv_value_t*);
@@ -180,6 +180,15 @@ stat_var *tm_trans_5xx;
 stat_var *tm_trans_6xx;
 stat_var *tm_trans_inuse;
 
+static dep_export_t deps = {
+	{ /* OpenSIPS module dependencies */
+		{ MOD_TYPE_NULL, NULL, 0 },
+	},
+	{ /* modparam dependencies */
+		{ "tm_replication_cluster",	get_deps_clusterer	},
+		{ NULL, NULL },
+	},
+};
 
 static cmd_export_t cmds[]={
 	{"t_newtran",       (cmd_function)w_t_newtran,      0, 0,
@@ -233,10 +242,12 @@ static cmd_export_t cmds[]={
 	{"t_add_cancel_reason",(cmd_function)t_add_reason,  1, fixup_spve_null,
 		0, REQUEST_ROUTE},
 	{"t_inject_branches",(cmd_function)w_t_inject_branches,1,fixup_inject,
-		0, REQUEST_ROUTE},
+		0, REQUEST_ROUTE|ONREPLY_ROUTE},
 	{"t_inject_branches",(cmd_function)w_t_inject_branches,2,fixup_inject,
-		0, REQUEST_ROUTE},
+		0, REQUEST_ROUTE|ONREPLY_ROUTE},
 	{"t_wait_for_new_branches",(cmd_function)w_t_wait_for_new_branches,0, 0,
+		0, REQUEST_ROUTE},
+	{"t_anycast_replicate", (cmd_function)tm_anycast_replicate, 0, 0,
 		0, REQUEST_ROUTE},
 	{"load_tm",         (cmd_function)load_tm,          0, 0,
 			0, 0},
@@ -289,6 +300,12 @@ static param_export_t params[]={
 		&timer_partitions },
 	{ "auto_100trying",           INT_PARAM,
 		&auto_100trying },
+	{ "tm_replication_cluster",   INT_PARAM,
+		&tm_repl_cluster },
+	{ "cluster_param",            STR_PARAM,
+		&tm_cluster_param.s },
+	{ "cluster_auto_cancel",      INT_PARAM,
+		&tm_repl_auto_cancel },
 	{0,0,0}
 };
 
@@ -352,7 +369,7 @@ struct module_exports exports= {
 	MOD_TYPE_DEFAULT,/* class of this module */
 	MODULE_VERSION,
 	DEFAULT_DLFLAGS, /* dlopen flags */
-	NULL,            /* OpenSIPS module dependencies */
+	&deps,           /* OpenSIPS module dependencies */
 	cmds,      /* exported functions */
 	NULL,      /* exported async functions */
 	params,    /* exported variables */
@@ -764,7 +781,7 @@ static int do_t_cleanup( struct sip_msg *foo, void *bar)
 }
 
 
-static int script_init( struct sip_msg *foo, void *bar)
+static int script_init( struct sip_msg *msg, void *bar)
 {
 	/* we primarily reset all private memory here to make sure
 	 * private values left over from previous message will
@@ -782,6 +799,10 @@ static int script_init( struct sip_msg *foo, void *bar)
 	t_on_negative( 0 );
 	t_on_reply(0);
 	t_on_branch(0);
+
+	if (msg->REQ_METHOD == METHOD_CANCEL && is_anycast(msg->rcv.bind_address) &&
+			tm_anycast_cancel(msg) == 0)
+		return SCB_DROP_MSG;
 
 	return SCB_RUN_ALL;
 }
@@ -924,6 +945,11 @@ static int mod_init(void)
 	if ( register_async_script_handlers( t_handle_async, t_resume_async )<0 ) {
 		LM_ERR("failed to register async handler to core \n");
 		return -1;
+	}
+
+	if (tm_init_cluster() < 0) {
+		LM_ERR("cannot initialize cluster support for transactions!\n");
+		LM_WARN("running without cluster support for transactions!\n");
 	}
 
 	return 0;
@@ -1300,10 +1326,13 @@ static int w_t_relay( struct sip_msg  *p_msg , char *proxy, char *flags)
 			return 1;
 		}
 
-		if (((int)(long)flags)&TM_T_REPLY_nodnsfo_FLAG)
+		if (((int)(long)flags)&TM_T_RELAY_nodnsfo_FLAG)
 			t->flags|=T_NO_DNS_FAILOVER_FLAG;
-		if (((int)(long)flags)&TM_T_REPLY_reason_FLAG)
+		if (((int)(long)flags)&TM_T_RELAY_reason_FLAG)
 			t->flags|=T_CANCEL_REASON_FLAG;
+		if ( (((int)(long)flags)&TM_T_RELAY_do_cancel_dis_FLAG) &&
+		tm_has_request_disponsition_no_cancel(p_msg)==0 )
+			t->flags|=T_MULTI_200OK_FLAG;
 
 		/* update the transaction only if in REQUEST route; for other types
 		   of routes we do not want to inherit the local changes */
@@ -1803,7 +1832,6 @@ struct sip_msg* tm_pv_context_request(struct sip_msg* msg)
 {
 	struct cell* trans = get_t();
 
-	LM_DBG("in fct din tm\n");
 	if(trans == NULL || trans == T_UNDEFINED)
 	{
 		LM_ERR("No transaction found\n");
@@ -2185,8 +2213,8 @@ static int pv_get_t_id(struct sip_msg *msg, pv_param_t *param,
 															pv_value_t *res)
 {
 #define INTasHEXA_SIZE (sizeof(int)*2)
+	static char buf[INTasHEXA_SIZE+1+INTasHEXA_SIZE];
 	struct cell *t;
-	char buf[INTasHEXA_SIZE+1+INTasHEXA_SIZE];
 	char *p;
 	int size;
 

@@ -32,6 +32,17 @@
 #define SDP_H
 
 #include "../msg_parser.h"
+#include "../../mem/mem.h"
+
+#define      NO_HOLD 0
+#define RFC2543_HOLD 1
+#define RFC3264_HOLD 2
+
+typedef struct sdp_attr {
+	struct sdp_attr *next;
+	str attribute;
+	str value;
+} sdp_attr_t;
 
 typedef struct sdp_payload_attr {
 	struct sdp_payload_attr *next;
@@ -46,6 +57,8 @@ typedef struct sdp_payload_attr {
 
 typedef struct sdp_stream_cell {
 	struct sdp_stream_cell *next;
+	/**< body of the entire stream */
+	str body;
 	/* c=<network type> <address type> <connection address> */
 	/**< connection address family: AF_INET/AF_INET6 */
 	int pf;
@@ -89,10 +102,13 @@ typedef struct sdp_stream_cell {
 	/**< fast access pointers to payloads */
 	struct sdp_payload_attr **p_payload_attr;
 	struct sdp_payload_attr *payload_attr;
+	struct sdp_attr *attr;
 } sdp_stream_cell_t;
 
 typedef struct sdp_session_cell {
 	struct sdp_session_cell *next;
+	/**< body of the entire session */
+	str body;
 	/**< session index inside sdp */
 	int session_num;
 	/**< the Content-Disposition header (for Content-Type:multipart/mixed) */
@@ -117,6 +133,7 @@ typedef struct sdp_session_cell {
 	/**< number of streams inside a session */
 	int streams_num;
 	struct sdp_stream_cell*  streams;
+	struct sdp_attr *attr;
 } sdp_session_cell_t;
 
 /**
@@ -159,11 +176,18 @@ sdp_payload_attr_t* get_sdp_payload4index(sdp_stream_cell_t *stream, int index);
 
 /**
  * Free all memory associated with parsed structure.
- *
- * Note: this will free up the parsed sdp structure (form PKG_MEM).
  */
-void free_sdp(sdp_info_t* sdp);
-
+void free_sdp_content(sdp_info_t* sdp);
+/**
+ * Free all memory associated with parsed structure.
+ *
+ * Note: this will also pkg_free() the given pointer
+ */
+static inline void free_sdp(sdp_info_t* sdp)
+{
+	free_sdp_content(sdp);
+	pkg_free(sdp);
+}
 
 /**
  * Print the content of the given sdp_info structure.

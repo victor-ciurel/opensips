@@ -51,7 +51,7 @@ static str ebr_print(evi_reply_sock *sock);
 
 
 /* IPC type registered with the IPC layer */
-int ebr_ipc_type;
+ipc_handler_type ebr_ipc_type;
 
 /* the TM API */
 struct tm_binds ebr_tmb;
@@ -157,7 +157,7 @@ static int mod_init(void)
 
 	/* register with the IPC layer */
 	ebr_ipc_type = ipc_register_handler( handle_ebr_ipc, "EBR");
-	if (ebr_ipc_type<0) {
+	if (ipc_bad_handler_type(ebr_ipc_type)) {
 		LM_ERR("cannot register IPC handler for 'EBR'\n");
 		return -1;
 	}
@@ -300,7 +300,8 @@ static int notify_on_event(struct sip_msg *msg, void *ev, void *avp_filter,
 
 	/* we have a valid EBR event here, let's subscribe on it */
 	if (add_ebr_subscription( msg, event, (int)(long)avp_filter,
-	(int)(long)timeout, route, EBR_SUBS_TYPE_NOTY ) <0 ) {
+	    timeout ? (int)*(unsigned int *)timeout : 0, route,
+	    EBR_SUBS_TYPE_NOTY ) <0 ) {
 		LM_ERR("failed to add ebr subscription for event %d\n",
 			event->event_id);
 		return -1;
@@ -325,7 +326,8 @@ static int wait_for_event(struct sip_msg* msg, async_ctx *ctx,
 
 	/* we have a valid EBR event here, let's subscribe on it */
 	if (add_ebr_subscription( msg, event, (int)(long)avp_filter,
-	(int)(long)timeout, (void*)ctx, EBR_SUBS_TYPE_WAIT ) <0 ) {
+	    (int)*(unsigned int *)timeout, (void*)ctx,
+	    EBR_SUBS_TYPE_WAIT ) <0 ) {
 		LM_ERR("failed to add ebr subscription for event %d\n",
 			event->event_id);
 		return -1;

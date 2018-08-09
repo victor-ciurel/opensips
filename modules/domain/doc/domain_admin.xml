@@ -4,7 +4,7 @@
 	
 	<title>&adminguide;</title>
 	
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 		Domain module implements checks that based on domain table determine 
@@ -30,7 +30,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<para>
 		The module depends on the following modules (in the other words the 
@@ -43,7 +43,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
 	<section>
 		<title><varname>db_url</varname> (string)</title>
@@ -125,9 +125,9 @@ modparam("domain", "attrs_col", "attributes")
 	</section>
 	
 	</section>
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
-	<section>
+	<section id="func_is_from_local" xreflabel="is_from_local()">
 		<title><function moreinfo="none">is_from_local([attrs_pvar])</function></title>
 		<para>
 		Checks based on domain table if host part of From header uri is
@@ -155,7 +155,7 @@ if (is_from_local("$var(attrs)")) {
 		</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_is_uri_host_local" xreflabel="is_uri_host_local()">
 		<title><function moreinfo="none">is_uri_host_local([attrs_pvar])</function></title>
 		<para>
 		If called from route or failure route block, checks
@@ -188,7 +188,7 @@ if (is_uri_host_local("$var(attrs)")) {
 		</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_is_domain_local" xreflabel="is_domain_local()">
 		<title><function moreinfo="none">is_domain_local(pseudo_variable [, attrs_pvar])</function></title>
 		<para>
 		This function checks if the domain contained in the
@@ -246,9 +246,9 @@ if (is_domain_local("$avp(some_avp)", "$avp(attrs)")) {
 		</example>
 	</section>
 	</section>
-	<section>
+	<section id="exported_mi_functions" xreflabel="Exported MI Functions">
 	<title>Exported MI Functions</title>
-	<section>
+	<section id="mi_domain_reload" xreflabel="domain_reload">
 		<title><function moreinfo="none">domain_reload</function></title>
 		<para>
 		Causes domain module to re-read the contents of domain table
@@ -262,12 +262,11 @@ if (is_domain_local("$avp(some_avp)", "$avp(attrs)")) {
 		MI FIFO Command Format:
 		</para>
         <programlisting  format="linespecific">
-		:domain_reload:_reply_fifo_file_
-		_empty_line_
+		opensipsctl fifo domain_reload
 		</programlisting>
 		
 	</section>
-	<section>
+	<section id="mi_domain_dump" xreflabel="domain_dump">
 		<title><function moreinfo="none">domain_dump</function></title>
 		<para>
 		Causes domain module to dump hash indexes and domain names in
@@ -281,8 +280,7 @@ if (is_domain_local("$avp(some_avp)", "$avp(attrs)")) {
 		MI FIFO Command Format:
 		</para>
         <programlisting  format="linespecific">
-		:domain_dump:_reply_fifo_file_
-		_empty_line_
+		opensipsctl fifo domain_dump
 		</programlisting>
 	</section>
 	</section>

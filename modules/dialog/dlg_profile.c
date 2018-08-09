@@ -190,7 +190,7 @@ int add_profile_definitions( char* profiles, unsigned int has_value)
 							name.len, name.s);
 				}
 			} else if ( p < e && *p == 'b') {
-				if (profile_replicate_cluster) {
+				if (profile_repl_cluster) {
 					type = REPL_PROTOBIN;
 				} else {
 					LM_WARN("profile %.*s configured to be replicated over BIN, "
@@ -465,7 +465,7 @@ static struct dlg_profile_table* new_dlg_profile( str *name, unsigned int size,
 	len = sizeof(struct dlg_profile_table) + name->len + 1;
 	/* anything else than only CACHEDB */
 	if (repl_type !=  REPL_CACHEDB)
-		len += size * ((has_value==0) ? sizeof(int):sizeof(map_t));
+		len += size * ((has_value==0) ? sizeof(struct prof_local_count*):sizeof(map_t));
 
 	profile = (struct dlg_profile_table *)shm_malloc(len);
 
@@ -476,7 +476,7 @@ static struct dlg_profile_table* new_dlg_profile( str *name, unsigned int size,
 	memset( profile , 0 , len);
 
 	if (!has_value)
-		profile->repl = repl_prof_allocate();
+		profile->noval_rcv_counters = repl_prof_allocate();
 
 	profile->size = size;
 	profile->has_value = (has_value==0)?0:1;
@@ -518,10 +518,9 @@ static struct dlg_profile_table* new_dlg_profile( str *name, unsigned int size,
 		profile->name.s = ((char*)profile->entries) +
 			size*sizeof( map_t );
 	} else {
-
-		profile->counts = ( int *)(profile + 1);
-		profile->name.s = (char*) (profile->counts) + size*sizeof( int ) ;
-
+		profile->noval_local_counters = (struct prof_local_count **)(profile + 1);
+		profile->name.s = ((char*)(profile->noval_local_counters)) +
+								size*sizeof(struct prof_local_count*);
 	}
 
 	/* copy the name of the profile */
@@ -572,19 +571,89 @@ void destroy_dlg_profiles(void)
 	return;
 }
 
+/* array of temporary copies of the dialog profile linkers */
+static struct dlg_profile_link *tmp_linkers_arr, *tmp_linkers;
+static int n_tmp_linkers, tmp_linkers_size;
 
+static int init_tmp_linkers(struct dlg_cell *dlg)
+{
+	struct dlg_profile_link *l;
+	int i;
 
-void destroy_linkers(struct dlg_profile_link *linker, char is_replicated)
+	for (l = dlg->profile_links, i = 0; l; l = l->next, i++) {
+		if (i == n_tmp_linkers) {
+			if (n_tmp_linkers == 0) {
+				tmp_linkers_size = sizeof *l;
+				n_tmp_linkers = 1;
+			} else {
+				tmp_linkers_size *= 2;
+				n_tmp_linkers *= 2;
+			}
+			tmp_linkers_arr = pkg_realloc(tmp_linkers_arr, tmp_linkers_size);
+			if (!tmp_linkers_arr) {
+				LM_ERR("No more pkg memory\n");
+				tmp_linkers = NULL;
+				return -1;
+			}
+		}
+
+		memcpy(&tmp_linkers_arr[i], l, sizeof *l);
+		if (i != 0)
+			tmp_linkers_arr[i-1].next = &tmp_linkers_arr[i];
+	}
+
+	if (dlg->profile_links) {
+		tmp_linkers_arr[i-1].next = NULL;
+		tmp_linkers = &tmp_linkers_arr[0];
+	} else
+		tmp_linkers = NULL;
+
+	return 0;
+}
+
+void destroy_linkers_unsafe(struct dlg_cell *dlg, char is_replicated)
+{
+	struct dlg_profile_link *l, *linker = dlg->profile_links;
+
+	/* temporarily save a copy of the dialog profile links in order to remove the
+	 * dialog from the profile table structures _after_ actually distroying the
+	 * links from the dlg_cell; this is useful for avoiding deadlocks */
+	if (init_tmp_linkers(dlg) < 0) {
+		LM_ERR("Failed to destroy profile linkers\n");
+		return;
+	}
+
+	while (linker) {
+		l = linker;
+		linker = linker->next;
+		shm_free(l);
+	}
+
+	dlg->profile_links = NULL;
+}
+
+void destroy_linkers(struct dlg_cell *dlg, char is_replicated)
+{
+	dlg_lock_dlg(dlg);
+
+	destroy_linkers_unsafe(dlg, is_replicated);
+
+	dlg_unlock_dlg(dlg);
+}
+
+/* this function should be called after destroy_linkers() and
+ * with the dialog unlocked(can cause a deadlock otherwise) */
+void remove_dlg_prof_table(struct dlg_cell *dlg, char is_replicated)
 {
 	map_t entry;
 	struct dlg_profile_link *l;
 	void ** dest;
+	struct dlg_profile_link *linker = tmp_linkers;
 
 	while(linker) {
 		l = linker;
 		linker = linker->next;
 		/* unlink from profile table */
-
 
 		if (!(l->profile->repl_type==REPL_CACHEDB)) {
 			lock_set_get( l->profile->locks, l->hash_idx);
@@ -595,7 +664,7 @@ void destroy_linkers(struct dlg_profile_link *linker, char is_replicated)
 				dest = map_find( entry, l->value );
 				if( dest )
 				{
-					repl_prof_dec(dest);
+					prof_val_local_dec(dest, dlg);
 
 					if( *dest == 0 )
 					{
@@ -606,53 +675,49 @@ void destroy_linkers(struct dlg_profile_link *linker, char is_replicated)
 					}
 				}
 			}
-			else
-				l->profile->counts[l->hash_idx]--;
+			else {
+				remove_local_counter(&l->profile->noval_local_counters[l->hash_idx], dlg);
+			}
 
 			lock_set_release( l->profile->locks, l->hash_idx  );
 		} else if (!is_replicated) {
 			if (!cdbc) {
 				LM_WARN("CacheDB not initialized - some information might"
 						" not be deleted from the cachedb engine\n");
-				goto skip_and_continue;
+				continue;
 			}
 
 			/* prepare buffers */
 			if( l->profile->has_value) {
 
 				if (dlg_fill_value(&l->profile->name, &l->value) < 0)
-					goto skip_and_continue;
+					continue;
 				if (dlg_fill_size(&l->profile->name) < 0)
-					goto skip_and_continue;
+					continue;
 				/* not really interested in the new val */
 				if (cdbf.sub(cdbc, &dlg_prof_val_buf, 1,
 							profile_timeout, NULL) < 0) {
 					LM_ERR("cannot remove profile from CacheDB\n");
-					goto skip_and_continue;
+					continue;
 				}
 				/* fill size into name */
 				if (cdbf.sub(cdbc, &dlg_prof_size_buf, 1,
 							profile_timeout, NULL) < 0) {
 					LM_ERR("cannot remove size profile from CacheDB\n");
-					goto skip_and_continue;
+					continue;
 				}
 			} else {
 				if (dlg_fill_name(&l->profile->name) < 0)
-					goto skip_and_continue;
+					continue;
 				if (cdbf.sub(cdbc, &dlg_prof_noval_buf, 1,
 							profile_timeout, NULL) < 0) {
 					LM_ERR("cannot remove profile from CacheDB\n");
-					goto skip_and_continue;
+					continue;
 				}
 			}
 		}
-
-skip_and_continue:
-		/* free memory */
-		shm_free(l);
 	}
 }
-
 
 inline static unsigned int calc_hash_profile( str *value, struct dlg_cell *dlg,
 										struct dlg_profile_table *profile )
@@ -674,6 +739,7 @@ static void link_dlg_profile(struct dlg_profile_link *linker,
 	map_t p_entry;
 	struct dlg_entry *d_entry;
 	void ** dest;
+	struct prof_local_count *cnt;
 
 	/* add the linker to the dialog */
 	/* FIXME zero h_id is not 100% for testing if the dialog is inserted
@@ -698,7 +764,6 @@ static void link_dlg_profile(struct dlg_profile_link *linker,
 		hash = calc_hash_profile(&linker->value, dlg, linker->profile);
 		linker->hash_idx = hash;
 
-
 		lock_set_get( linker->profile->locks, hash );
 
 		LM_DBG("Entered here with hash = %d \n",hash);
@@ -706,12 +771,25 @@ static void link_dlg_profile(struct dlg_profile_link *linker,
 		{
 			p_entry = linker->profile->entries[hash];
 			dest = map_get( p_entry, linker->value );
+			if (!dest) {
+				LM_ERR("No more shm memory\n");
+				lock_set_release( linker->profile->locks,hash );
+				return;
+			}
 			/* if we accept replicated stuff, we have to allocate the
 			 * structure for it and treat the counter differently */
-			repl_prof_inc(dest);
+			prof_val_local_inc(dest, dlg);
 		}
-		else
-			linker->profile->counts[hash]++;
+		else {
+			cnt = get_local_counter(&linker->profile->noval_local_counters[hash], dlg);
+			if (!cnt) {
+				lock_set_release(linker->profile->locks, hash);
+				return;
+			}
+
+			cnt->dlg = dlg;
+			cnt->n++;
+		}
 
 		lock_set_release( linker->profile->locks,hash );
 	} else if (!is_replicated) {
@@ -826,8 +904,10 @@ int unset_dlg_profile(struct dlg_cell *dlg, str *value,
 			 */
 		}
 	}
-	if (dlg->locked_by!=process_no)
+	if (dlg->locked_by!=process_no) {
+		dlg->locked_by = 0;
 		dlg_unlock( d_table, d_entry);
+	}
 	return -1;
 
 found:
@@ -840,10 +920,15 @@ found:
 	}
 	linker->next = NULL;
 	dlg->flags |= DLG_FLAG_VP_CHANGED;
+
+	/* remove linkers from dialog */
+	destroy_linkers_unsafe(dlg, 0);
+
 	if (dlg->locked_by!=process_no)
 		dlg_unlock( d_table, d_entry);
-	/* remove linker from profile table and free it */
-	destroy_linkers(linker, 0);
+
+	remove_dlg_prof_table(dlg, 0);
+
 	return 1;
 }
 
@@ -887,6 +972,7 @@ unsigned int get_profile_size(struct dlg_profile_table *profile, str *value)
 	map_t entry ;
 	void ** dest;
 	int ret;
+	map_iterator_t it;
 
 	if (profile->has_value==0)
 	{
@@ -904,21 +990,10 @@ unsigned int get_profile_size(struct dlg_profile_table *profile, str *value)
 				goto failed;
 			}
 
-		} else {
+		} else
+			n += noval_get_local_count(profile);
 
-			for( i=0; i<profile->size; i++ )
-			{
-
-				lock_set_get( profile->locks, i);
-
-				n += profile->counts[i];
-
-				lock_set_release( profile->locks, i);
-
-			}
-
-		}
-		n += replicate_profiles_count(profile->repl);
+		n += replicate_profiles_count(profile->noval_rcv_counters);
 
 	} else {
 
@@ -940,16 +1015,29 @@ unsigned int get_profile_size(struct dlg_profile_table *profile, str *value)
 
 				for( i=0; i<profile->size; i++ )
 				{
-
 					lock_set_get( profile->locks, i);
 
-					n += map_size(profile->entries[i]);
+					if (map_first(profile->entries[i], &it) < 0) {
+						LM_ERR("map does not exist\n");
+						lock_set_release( profile->locks, i);
+						continue;
+					}
+					while (iterator_is_valid(&it)) {
+						dest = iterator_val(&it);
+						if (!dest || !*dest) {
+							LM_ERR("[BUG] bogus map[%d] state\n", i);
+							goto next_val;
+						}
+
+						n += prof_val_get_count(dest, 0);
+next_val:
+						if (iterator_next(&it) < 0)
+							break;
+					}
 
 					lock_set_release( profile->locks, i);
-
 				}
 			}
-
 
 		}
 		else
@@ -976,7 +1064,7 @@ unsigned int get_profile_size(struct dlg_profile_table *profile, str *value)
 
 				dest = map_find(entry,*value);
 				if( dest )
-					n = repl_prof_get_all(dest);
+					n = prof_val_get_count(dest, 0);
 
 				lock_set_release( profile->locks, i);
 
@@ -990,6 +1078,34 @@ failed:
 	return 0;
 }
 
+int noval_get_local_count(struct dlg_profile_table *profile)
+{
+	int i;
+	int n = 0;
+	struct prof_local_count *cnt;
+
+	for (i = 0; i < profile->size; i++) {
+		lock_set_get(profile->locks, i);
+
+		if (profile->noval_local_counters[i] == NULL) {
+			lock_set_release(profile->locks, i);
+			continue;
+		}
+
+		for (cnt = profile->noval_local_counters[i]; cnt; cnt = cnt->next) {
+			if (profile_repl_cluster && dialog_repl_cluster) {
+				/* don't count dialogs for which we have a backup role */
+				if (cnt->dlg && get_shtag_state(cnt->dlg) != SHTAG_STATE_BACKUP)
+					n += cnt->n;
+			} else
+				n += cnt->n;
+		}
+
+		lock_set_release(profile->locks, i);
+	}
+
+	return n;
+}
 
 /****************************** MI commands *********************************/
 
@@ -1103,7 +1219,7 @@ static inline int add_val_to_rpl(void * param, str key, void * val)
 	if( node == NULL )
 		return -1;
 
-	counter = repl_prof_get_all(&val);
+	counter = prof_val_get_count(&val, 0);
 	p= int2str((unsigned long)counter, &len);
 	attr = add_mi_attr(node, MI_DUP_VALUE, "count", 5,  p, len );
 
@@ -1184,15 +1300,10 @@ struct mi_root * mi_get_profile_values(struct mi_root *cmd_tree, void *param )
 	{
 		n = 0;
 
-		for( i=0; i<profile->size; i++ )
-		{
-			lock_set_get( profile->locks, i);
-			n += profile->counts[i];
-			lock_set_release( profile->locks, i);
-		}
+		n += noval_get_local_count(profile);
 
 		if (profile->repl_type != REPL_CACHEDB)
-			n += replicate_profiles_count(profile->repl);
+			n += replicate_profiles_count(profile->noval_rcv_counters);
 
 		ret = add_counter_no_val_to_rpl(rpl, n);
 	}
@@ -1346,6 +1457,7 @@ struct mi_root * mi_profile_terminate(struct mi_root *cmd_tree, void *param ) {
 	struct dlg_cell    *cur_dlg;
 	struct dlg_profile_link *cur_link;
 	struct dialog_list *deleted = NULL, *delete_entry ;
+	int shtag_state;
 
 	node = cmd_tree->node.kids;
 	if (node==NULL || !node->value.s || !node->value.len)
@@ -1407,15 +1519,30 @@ struct mi_root * mi_profile_terminate(struct mi_root *cmd_tree, void *param ) {
 
 		delete_entry = deleted;
 		while(delete_entry){
-			init_dlg_term_reason(delete_entry->dlg,"MI Termination",sizeof("MI Termination")-1);
+			if (dialog_repl_cluster) {
+				shtag_state = get_shtag_state(delete_entry->dlg);
+				if (shtag_state < 0) {
+					while(delete_entry){
+						deleted = delete_entry;
+						delete_entry = delete_entry->next;
+						pkg_free(deleted);
+					}
+					LM_ERR("error while checking replication tag\n");
+					return init_mi_tree( 400, MI_SSTR("Dialog internal error"));
+				} else if (shtag_state == 0)
+					continue;
+			}
 
-			if ( dlg_end_dlg( delete_entry->dlg, NULL) ) {
+			init_dlg_term_reason(delete_entry->dlg, "MI Termination",
+									sizeof("MI Termination") - 1);
+
+			if (dlg_end_dlg( delete_entry->dlg, NULL, 1) ) {
 				while(delete_entry){
 					deleted = delete_entry;
 					delete_entry = delete_entry->next;
 					pkg_free(deleted);
 				}
-				LM_CRIT("error while terminating dlg\n");
+				LM_ERR("error while terminating dlg\n");
 				return init_mi_tree( 400, MI_SSTR("Dialog internal error"));
 			}
 

@@ -5,7 +5,7 @@
 	<title>&adminguide;</title>
 
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 		<title>Overview</title>
 		<para>
 		AVPops (AVP-operations) modules implements a set of script
@@ -25,7 +25,7 @@
 		the transaction are not available).
 		</para>
 	</section>
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 		<title>Dependencies</title>
 		<section>
 			<title>&osips; Modules</title>
@@ -84,9 +84,9 @@ $avp(foo) - the AVP identified by the string 'foo'
 				</programlisting>
 			</example>
 	</section>
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 		<title>Exported Parameters</title>
-		<section>
+		<section id="param_db_url" xreflabel="db_url">
 			<title><varname>db_url</varname> (string)</title>
 			<para>
 			DB URL for database connection. As the module allows the usage
@@ -113,7 +113,7 @@ modparam("avpops","db_url","1 postgres://user:passwd@host2/opensips")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_avp_table" xreflabel="avp_table">
 			<title><varname>avp_table</varname> (string)</title>
 			<para>
 			DB table to be used.
@@ -132,7 +132,7 @@ modparam("avpops","avp_table","avptable")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_use_domain" xreflabel="use_domain">
 			<title><varname>use_domain</varname> (integer)</title>
 			<para>
 				If the domain part of the an URI should be used for
@@ -152,7 +152,7 @@ modparam("avpops","use_domain",1)
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_uuid_column" xreflabel="uuid_column">
 			<title><varname>uuid_column</varname> (string)</title>
 			<para>
 				Name of column containing the uuid (unique user id).
@@ -170,7 +170,7 @@ modparam("avpops","uuid_column","uuid")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_username_column" xreflabel="username_column">
 			<title><varname>username_column</varname> (string)</title>
 			<para>
 				Name of column containing the username.
@@ -188,7 +188,7 @@ modparam("avpops","username_column","username")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_domain_column" xreflabel="domain_column">
 			<title><varname>domain_column</varname> (string)</title>
 			<para>
 				Name of column containing the domain name.
@@ -206,7 +206,7 @@ modparam("avpops","domain_column","domain")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_attribute_column" xreflabel="attribute_column">
 			<title><varname>attribute_column</varname> (string)</title>
 			<para>
 				Name of column containing the attribute name (AVP name).
@@ -225,7 +225,7 @@ modparam("avpops","attribute_column","attribute")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_value_column" xreflabel="value_column">
 			<title><varname>value_column</varname> (string)</title>
 			<para>
 				Name of column containing the AVP value.
@@ -244,7 +244,7 @@ modparam("avpops","value_column","value")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_type_column" xreflabel="type_column">
 			<title><varname>type_column</varname> (string)</title>
 			<para>
 				Name of column containing the AVP type.
@@ -263,7 +263,7 @@ modparam("avpops","type_column","type")
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_db_scheme" xreflabel="db_scheme">
 			<title><varname>db_scheme</varname> (string)</title>
 			<para>
 				Definition of a DB scheme to be used for non-standard
@@ -308,7 +308,7 @@ modparam("avpops","db_scheme",
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="param_buf_size" xreflabel="buf_size">
 			<title><varname>buf_size</varname> (integer)</title>
 			<para>
 				Allocated size for AVP variables.
@@ -329,9 +329,9 @@ modparam("avpops", "buf_size", 1024)
 		</section>
 	</section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 		<title>Exported Functions</title>
-		<section>
+		<section id="func_avp_db_load" xreflabel="avp_db_load()">
 			<title>
 				<function moreinfo="none">avp_db_load(source, name[, db_id[, prefix]])
 				</function>
@@ -422,7 +422,7 @@ xlog("Loaded: $avp(caller_100)\n");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_db_store" xreflabel="avp_db_store()">
 			<title>
 				<function moreinfo="none">avp_db_store(source,name[,db_id])</function>
 			</title>
@@ -451,7 +451,7 @@ avp_db_store("$ru","$avp(1)","3");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_db_delete" xreflabel="avp_db_delete()">
 			<title>
 				<function moreinfo="none">avp_db_delete(source,name[,db_id])</function>
 			</title>
@@ -480,7 +480,7 @@ avp_db_delete("$ru","$avp(1)","3");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_db_query" xreflabel="avp_db_query()">
 			<title>
 				<function moreinfo="none">avp_db_query(query[[,dest],db_id])</function>
 			</title>
@@ -546,7 +546,7 @@ avp_db_query("delete from subscriber","","$avp(id)");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_delete" xreflabel="avp_delete()">
 			<title>
 				<function moreinfo="none">avp_delete(name)
 				</function>
@@ -591,7 +591,7 @@ avp_delete("a3");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_pushto" xreflabel="avp_pushto()">
 			<title>
 				<function moreinfo="none">avp_pushto(destination,name)
 				</function>
@@ -657,7 +657,7 @@ avp_pushto("$br","$avp(680)");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_check" xreflabel="avp_check()">
 			<title>
 				<function moreinfo="none">avp_check(name,op_value)
 				</function>
@@ -753,7 +753,7 @@ avp_check("$avp(foo)","fm/$avp(fm_avp)/g");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_copy" xreflabel="avp_copy()">
 			<title>
 				<function moreinfo="none">avp_copy(old_name,new_name)
 				</function>
@@ -803,7 +803,7 @@ avp_copy("$avp(old)","$avp(new)/gd");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_subst" xreflabel="avp_subst()">
 			<title>
 				<function moreinfo="none">avp_subst(avps, subst)</function>
 			</title>
@@ -884,7 +884,7 @@ avp_subst("$avp(678)/$avp(679)/g", "/(.*)@(.*)/\1@$rd/");
 			processing will use it.
 			</para>
 		</section>
-		<section>
+		<section id="func_avp_op" xreflabel="avp_op()">
 			<title>
 				<function moreinfo="none">avp_op(name,op_value)
 				</function>
@@ -961,7 +961,7 @@ avp_op("$avp(number)","sub/$avp(number2)/d");
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_is_avp_set" xreflabel="is_avp_set()">
 			<title>
 				<function moreinfo="none">is_avp_set(name)
 				</function>
@@ -1000,7 +1000,7 @@ if(is_avp_set("$avp(678)"))
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_print" xreflabel="avp_print()">
 			<title>
 				<function moreinfo="none">avp_print()
 				</function>
@@ -1022,7 +1022,7 @@ avp_print();
 				</programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="func_avp_insert" xreflabel="avp_insert()">
 			<title>
 				<function moreinfo="none">avp_insert(avp_name, value, index)
 				</function>
@@ -1046,7 +1046,7 @@ avp_insert("avp(20)", "$hdr(From)", 2);
 
 	<section>
 	<title>Exported Asynchronous Functions</title>
-		<section>
+		<section id="afunc_avp_db_query" xreflabel="avp_db_query()">
 			<title>
 				<function moreinfo="none">avp_db_query(query[[,dest],db_id])</function>
 			</title>

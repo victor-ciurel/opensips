@@ -266,13 +266,17 @@ void sngtc_dlg_terminated(struct dlg_cell *dlg, int type,
 {
 	str info_ptr;
 	struct sngtc_info *info;
+	int rc;
 
-	LM_DBG("freeing the sdp buffer\n");
+	rc = dlg_binds.fetch_dlg_value(dlg, &dlg_key_sngtc_info, &info_ptr, 0);
 
-	if (dlg_binds.fetch_dlg_value(dlg, &dlg_key_sngtc_info, &info_ptr, 0) != 0) {
+	if (rc == -1) {
 		LM_ERR("failed to fetch caller sdp\n");
 		return;
-	}
+	} else  if (rc == -2)
+		return;
+
+	LM_DBG("freeing the sdp buffer\n");
 
 	info = *(struct sngtc_info **)info_ptr.s;
 	LM_DBG("Info ptr: %p\n", info);
@@ -285,6 +289,9 @@ void sngtc_dlg_terminated(struct dlg_cell *dlg, int type,
 		shm_free(info->modified_caller_sdp.s);
 
 	shm_free(info);
+
+	if (dlg_binds.store_dlg_value(dlg, &dlg_key_sngtc_info, NULL) < 0)
+		LM_ERR("failed to clear dlg val with caller sdp\n");
 }
 
 static int mod_init(void)
@@ -404,40 +411,32 @@ static void mod_destroy(void)
 static int sng_logger(int level, char *fmt, ...)
 {
 	va_list args;
-	static char buffer[256];
+	char buffer[256];
 
 	va_start(args, fmt);
 
 	vsnprintf(buffer, 256, fmt, args);
 
 	switch (level) {
-	case SNGTC_LOGLEVEL_DEBUG:
-		LM_GEN1(L_DBG, fmt, args);
 		LM_DBG("%s\n", buffer);
 		break;
-	case SNGTC_LOGLEVEL_WARN:
-		LM_GEN1(L_WARN, fmt, args);
-		LM_WARN("%s\n", buffer);
-		break;
+
 	case SNGTC_LOGLEVEL_INFO:
-		LM_GEN1(L_INFO, fmt, args);
-		LM_INFO("%s\n", buffer);
-		break;
 	case SNGTC_LOGLEVEL_STATS:
-		LM_GEN1(L_INFO, fmt, args);
 		LM_INFO("%s\n", buffer);
-		break;
-	case SNGTC_LOGLEVEL_ERROR:
-		LM_GEN1(L_ERR, fmt, args);
-		LM_ERR("%s\n", buffer);
-		break;
-	case SNGTC_LOGLEVEL_CRIT:
-		LM_GEN1(L_CRIT, fmt, args);
-		LM_CRIT("%s\n", buffer);
 		break;
 
+	case SNGTC_LOGLEVEL_WARN:
+		LM_WARN("%s\n", buffer);
+		break;
+
+	case SNGTC_LOGLEVEL_ERROR:
+		LM_ERR("%s\n", buffer);
+		break;
+
+	case SNGTC_LOGLEVEL_CRIT:
 	default:
-		LM_GEN1(L_WARN, fmt, args);
+		LM_CRIT("%s\n", buffer);
 	}
 
 	va_end(args);
@@ -538,7 +537,7 @@ static int sngtc_offer(struct sip_msg *msg)
 
 		/* register a callback to free the above */
 		if (dlg_binds.register_dlgcb(dlg,
-			                         DLGCB_EXPIRED|DLGCB_FAILED|DLGCB_TERMINATED,
+			DLGCB_EXPIRED|DLGCB_FAILED|DLGCB_TERMINATED|DLGCB_DESTROY,
 		    sngtc_dlg_terminated, NULL, NULL) != 0) {
 
 			LM_ERR("failed to register dialog callback\n");
@@ -1317,7 +1316,7 @@ static int sngtc_callee_answer(struct sip_msg *msg)
 
 	/* perform all 200 OK SDP changes and pre-compute the ACK SDP body */
 	rc = process_session(msg, info, &caller_sdp, &dst, sdp.sessions,
-	                     msg->sdp->sessions);
+	                     get_sdp(msg)->sessions);
 	if (rc != 0) {
 		LM_ERR("failed to rewrite SDP bodies of the endpoints\n");
 		goto out_free;
@@ -1342,7 +1341,7 @@ static int sngtc_callee_answer(struct sip_msg *msg)
 	lock_release(&info->lock);
 
 	if (sdp.sessions)
-		__free_sdp(&sdp);
+		free_sdp_content(&sdp);
 
 	return 1;
 
@@ -1351,7 +1350,7 @@ out_free:
 	lock_release(&info->lock);
 
 	if (sdp.sessions)
-		__free_sdp(&sdp);
+		free_sdp_content(&sdp);
 
 	return rc;
 }

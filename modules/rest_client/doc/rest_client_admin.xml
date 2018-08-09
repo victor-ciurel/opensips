@@ -4,7 +4,7 @@
 
 	<title>&adminguide;</title>
 
-	<section id="sec-overview">
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 	The <emphasis>rest_client</emphasis> module provides a means of interacting
@@ -12,7 +12,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -44,9 +44,9 @@
 	</section>
 	</section>
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 		<title>Exported Parameters</title>
-	<section>
+	<section id="param_connection_timeout" xreflabel="connection_timeout">
 		<title><varname>connection_timeout</varname> (integer)</title>
 		<para>
 		Maximum time allowed to establish a connection with the server.
@@ -66,7 +66,7 @@ modparam("rest_client", "connection_timeout", 300)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_connect_poll_interval" xreflabel="connect_poll_interval">
 		<title><varname>connect_poll_interval</varname> (integer)</title>
 		<para>
 		Allows complete control over how quickly we want to detect libcurl's completed
@@ -88,7 +88,7 @@ modparam("rest_client", "connect_poll_interval", 2)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_max_async_transfers" xreflabel="max_async_transfers">
 		<title><varname>max_async_transfers</varname> (integer)</title>
 		<para>
 		Maximum number of asynchronous HTTP transfers <emphasis>a single</emphasis>
@@ -111,7 +111,7 @@ modparam("rest_client", "max_async_transfers", 300)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_curl_timeout" xreflabel="curl_timeout">
 		<title><varname>curl_timeout</varname> (integer)</title>
 		<para>
 		Maximum time allowed for the libcurl transfer to complete.
@@ -131,7 +131,7 @@ modparam("rest_client", "curl_timeout", 300)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_ssl_verifypeer" xreflabel="ssl_verifypeer">
 		<title><varname>ssl_verifypeer</varname> (integer)</title>
 		<para>
 		Set this to 0 in order to disable the verification of the remote peer's
@@ -153,7 +153,7 @@ modparam("rest_client", "ssl_verifypeer", 0)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_ssl_verifyhost" xreflabel="ssl_verifyhost">
 		<title><varname>ssl_verifyhost</varname> (integer)</title>
 		<para>
 		Set this to 0 in order to disable the verification that the remote peer
@@ -174,7 +174,7 @@ modparam("rest_client", "ssl_verifyhost", 0)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_ssl_capath" xreflabel="ssl_capath">
 		<title><varname>ssl_capath</varname> (integer)</title>
 		<para>
 		An optional path for CA certificates to be used for host verifications.
@@ -189,15 +189,66 @@ modparam("rest_client", "ssl_capath", "/home/opensips/ca_certificates")
 		</example>
 	</section>
 
+	<section id="param_curl_http_version" xreflabel="curl_http_version">
+		<title><varname>curl_http_version</varname> (integer)</title>
+		<para>
+		Use a specific HTTP version for all requests. Possible values:
+		</para>
+		<para>
+		<itemizedlist>
+		<listitem>
+			<para>0 (default) - use whatever is deemed fit by libcurl</para>
+		</listitem>
+		<listitem>
+			<para>1 - enforce HTTP 1.0 requests</para>
+		</listitem>
+		<listitem>
+			<para>2 - enforce HTTP 1.1 requests</para>
+		</listitem>
+		<listitem>
+			<para>3 - attempt HTTP 2 requests. Fall back to HTTP 1.1 if HTTP 2
+				cannot be negotiated with the server. Requires libcurl 7.33.0+.
+			</para>
+		</listitem>
+		<listitem>
+			<para>4 - attempt HTTP 2 over TLS (HTTPS) only. Fall back to HTTP
+				1.1 if HTTP 2 cannot be negotiated with the HTTPS server.
+				For clear text HTTP servers, use HTTP 1.1.
+				Requires libcurl 7.47.0+.
+			</para>
+		</listitem>
+		<listitem>
+			<para>5 - Issue non-TLS HTTP requests using HTTP 2 without HTTP 1.1
+				Upgrade. It requires prior knowledge that the server supports
+				HTTP 2 straight away. HTTPS requests will still do HTTP/2 the
+				standard way with negotiated protocol version in the TLS
+				handshake. Requires libcurl 7.49.0+.
+			</para>
+		</listitem>
+		</itemizedlist>
+		</para>
+		<para>
+			<emphasis>more details <ulink url="https://curl.haxx.se/libcurl/c/CURLOPT_HTTP_VERSION.html">
+				<citetitle>here</citetitle></ulink>, where the documentation for
+			this setting was inspired (read: pilfered) from</emphasis>
+		</para>
+		<example>
+		<title>Setting the <varname>curl_http_version</varname> parameter</title>
+		<programlisting format="linespecific">
+...
+modparam("rest_client", "curl_http_version", 3)
+...
+</programlisting>
+		</example>
 	</section>
 
-	<section>
+	</section>
+
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
-	<section id="rest_get"
-			 xreflabel="rest_get">
+	<section id="func_rest_get" xreflabel="rest_get()">
 		<title>
-		<function moreinfo="none">rest_get(url, body_pv[, [ctype_pv][, [retcode_pv]]])
-		</function>
+		<function moreinfo="none">rest_get(url, body_pv[, [ctype_pv][, [retcode_pv]]])</function>
 		</title>
 		<para>
 		Issues an HTTP GET request to the given 'url', and returns a representation
@@ -231,8 +282,7 @@ modparam("rest_client", "ssl_capath", "/home/opensips/ca_certificates")
 		</listitem>
 		</itemizedlist>
 		<para>
-		This function can be used from the <emphasis>startup, branch, failure,
-				request</emphasis> and <emphasis>timer</emphasis> routes.
+		This function can be used from any route.
 		</para>
 		<example>
 		<title><function moreinfo="none">rest_get</function> usage</title>
@@ -255,8 +305,7 @@ if ($var(rcode) >= 300) {
 </programlisting>
 		</example>
 	</section>
-	<section id="rest_post"
-			 xreflabel="rest_post">
+	<section id="func_rest_post" xreflabel="rest_post()">
 		<title>
 		<function moreinfo="none">rest_post(url, send_body_pv, [send_ctype_pv],
 				recv_body_pv[, [recv_ctype_pv][, [retcode_pv]]])
@@ -284,7 +333,7 @@ if ($var(rcode) >= 300) {
 		<para>
 		The optional <emphasis>retcode_pv</emphasis> pseudo-var parameter can be given
 		in order to retrieve the HTTP status code of the response message. Since
-		the module based on libcurl, a <emphasis role='bold'>0</emphasis> value
+		the module is based on libcurl, a <emphasis role='bold'>0</emphasis> value
 		means no HTTP reply arrived at all.
 		</para>
 		<para>Possible parameter types</para>
@@ -300,8 +349,7 @@ if ($var(rcode) >= 300) {
 		</listitem>
 		</itemizedlist>
 		<para>
-		This function can be used from the <emphasis>startup, branch, failure,
-				request</emphasis> and <emphasis>timer</emphasis> routes.
+		This function can be used from any route.
 		</para>
 		<example>
 		<title><function moreinfo="none">rest_post</function> usage</title>
@@ -325,8 +373,7 @@ if ($var(rcode) >= 300) {
 </programlisting>
 		</example>
 	</section>
-	<section id="rest_put"
-			 xreflabel="rest_put">
+	<section id="func_rest_put" xreflabel="rest_put()">
 		<title>
 		<function moreinfo="none">rest_put(url, send_body_pv, [send_ctype_pv],
 				recv_body_pv[, [recv_ctype_pv][, [retcode_pv]]])
@@ -354,7 +401,7 @@ if ($var(rcode) >= 300) {
 		<para>
 		The optional <emphasis>retcode_pv</emphasis> pseudo-var parameter can be given
 		in order to retrieve the HTTP status code of the response message. Since
-		the module based on libcurl, a <emphasis role='bold'>0</emphasis> value
+		the module is based on libcurl, a <emphasis role='bold'>0</emphasis> value
 		means no HTTP reply arrived at all.
 		</para>
 		<para>Possible parameter types</para>
@@ -370,8 +417,7 @@ if ($var(rcode) >= 300) {
 		</listitem>
 		</itemizedlist>
 		<para>
-		This function can be used from the <emphasis>startup, branch, failure,
-				request</emphasis> and <emphasis>timer</emphasis> routes.
+		This function can be used from any route.
 		</para>
 		<example>
 		<title><function moreinfo="none">rest_put</function> usage</title>
@@ -394,7 +440,7 @@ if ($var(rcode) >= 300) {
 </programlisting>
 		</example>
 	</section>
-	<section id="rest_append_hf" xreflabel="rest_append_hf">
+	<section id="func_rest_append_hf" xreflabel="rest_append_hf()">
 		<title>
 		<function moreinfo="none">rest_append_hf(txt)</function>
 		</title>
@@ -415,7 +461,7 @@ if ($var(rcode) >= 300) {
 		</listitem>
 		</itemizedlist>
 		<para>
-		This function can be used from the <emphasis>startup, branch, failure, request</emphasis> and <emphasis>timer</emphasis> routes.
+		This function can be used from any route.
 		</para>
 		<example>
 		<title><function moreinfo="none">rest_append_hf</function> usage</title>
@@ -429,18 +475,52 @@ $var(rc) = rest_get("http://getcredit.org/?account=$fU", "$var(credit)");
 		</programlisting>
 		</example>
 	</section>
+	<section id="func_rest_init_client_tls" xreflabel="rest_init_client_tls()">
+		<title>
+		<function moreinfo="none">rest_init_client_tls(tls_client_domain)</function>
+		</title>
+		<para>
+		Force a specific TLS domain to be eventually used during the next request.
+		Refer to the tls_mgm module for additional info regarding TLS client domains.
+		</para>
+		<para>
+		If using this parameter, you must also ensure that tls_mgm is loaded
+		and properly configured.
+		</para>
+		<para>Parameter types</para>
+		<itemizedlist>
+		<listitem>
+			<para><emphasis>tls_client_domain</emphasis> - string,
+			pseudo-variable, or a string which includes pseudo-variables.
+			</para>
+		</listitem>
+		</itemizedlist>
+		<para>
+		This function can be used from any route.
+		</para>
+		<example>
+		<title><function moreinfo="none">rest_init_client_tls</function> usage</title>
+		<programlisting format="linespecific">
+...
+rest_init_client_tls("dom1");
+if (!rest_get("https://example.com"))
+    xlog("query failed\n");
+...
+		</programlisting>
+		</example>
+	</section>
 	</section>
 
 	<section>
 	<title>Exported Asynchronous Functions</title>
-	<section>
+	<section id="afunc_rest_get" xreflabel="rest_get()">
 		<title>
 		<function moreinfo="none">rest_get(url, body_pv[, [ctype_pv][, [retcode_pv]]])
 		</function>
 		</title>
 		<para>
 		Sends a GET HTTP request. This function behaves exactly the same as
-		<emphasis role='bold'><xref linkend="rest_get"/></emphasis>
+		<emphasis role='bold'><xref linkend="func_rest_get"/></emphasis>
 		(in terms of input, output and processing),
 		but in an asynchronous way. Script execution is suspended until the
 		entire content of the HTTP response is available.
@@ -473,7 +553,7 @@ route [resume] {
 		</example>
 	</section>
 
-	<section>
+	<section id="afunc_rest_post" xreflabel="rest_post()">
 		<title>
 		<function moreinfo="none">rest_post(url, send_body_pv, [send_ctype_pv],
 				recv_body_pv[, [recv_ctype_pv][, [retcode_pv]]])
@@ -481,7 +561,7 @@ route [resume] {
 		</title>
 		<para>
 		Sends a POST HTTP request. This function behaves exactly the same as
-		<emphasis role='bold'><xref linkend="rest_post"/></emphasis> (in terms of input, output and processing),
+		<emphasis role='bold'><xref linkend="func_rest_post"/></emphasis> (in terms of input, output and processing),
 		but in an asynchronous way. Script execution is suspended until the
 		entire content of the HTTP response is available.
 		</para>
@@ -513,7 +593,7 @@ route [resume] {
 		</example>
 	</section>
 
-	<section>
+	<section id="afunc_rest_put" xreflabel="rest_put()">
 		<title>
 		<function moreinfo="none">rest_put(url, send_body_pv, [send_ctype_pv],
 				recv_body_pv[, [recv_ctype_pv][, [retcode_pv]]])
@@ -521,7 +601,7 @@ route [resume] {
 		</title>
 		<para>
 		Sends a PUT HTTP request. This function behaves exactly the same as
-		<emphasis role='bold'><xref linkend="rest_put"/></emphasis> (in terms of input, output and processing),
+		<emphasis role='bold'><xref linkend="func_rest_put"/></emphasis> (in terms of input, output and processing),
 		but in an asynchronous way. Script execution is suspended until the
 		entire content of the HTTP response is available.
 		</para>

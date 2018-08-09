@@ -65,12 +65,13 @@ struct retr_buf;
 extern int noisy_ctimer;
 
 
-/* t_reply_to flags */
-#define TM_T_REPLY_repl_FLAG     (1<<0)
-#define TM_T_REPLY_not_used      (1<<1)
-#define TM_T_REPLY_noerr_FLAG    (1<<2)
-#define TM_T_REPLY_nodnsfo_FLAG  (1<<3)
-#define TM_T_REPLY_reason_FLAG   (1<<4)
+/* t_relay_to flags */
+#define TM_T_RELAY_repl_FLAG          (1<<0)
+#define TM_T_RELAY_not_used           (1<<1)
+#define TM_T_RELAY_noerr_FLAG         (1<<2)
+#define TM_T_RELAY_nodnsfo_FLAG       (1<<3)
+#define TM_T_RELAY_reason_FLAG        (1<<4)
+#define TM_T_RELAY_do_cancel_dis_FLAG (1<<5)
 
 
 /* send a private buffer: utilize a retransmission structure
@@ -182,6 +183,8 @@ void cleanup_localcancel_timers( struct cell *t );
 
 int t_relay_to( struct sip_msg  *p_msg, struct proxy_l *proxy, int replicate);
 
+
+int tm_has_request_disponsition_no_cancel(struct sip_msg *msg);
 
 #endif
 

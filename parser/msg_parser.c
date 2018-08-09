@@ -475,11 +475,11 @@ int parse_headers(struct sip_msg* msg, hdr_flags_t flags, int next)
 				msg->parsed_flag |= HDR_MIN_EXPIRES_F;
 				break;
 			case HDR_PPI_T:
-				if (msg->ppi==0) msg->ppi = hf;
+				link_sibling_hdr(ppi,hf);
 				msg->parsed_flag|=HDR_PPI_F;
 				break;
 			case HDR_PAI_T:
-				if (msg->pai==0) msg->pai = hf;
+				link_sibling_hdr(pai,hf);
 				msg->parsed_flag|=HDR_PAI_F;
 				break;
 			case HDR_PRIVACY_T:
@@ -687,9 +687,6 @@ void free_sip_msg(struct sip_msg* msg)
 	if (msg->reply_lump)   free_reply_lump(msg->reply_lump);
 	if (msg->body )    { free_sip_body(msg->body);msg->body = 0;}
 	/* don't free anymore -- now a pointer to a static buffer */
-#	ifdef DYN_BUF
-	pkg_free(msg->buf);
-#	endif
 }
 
 

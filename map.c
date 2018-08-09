@@ -72,7 +72,7 @@ static int str_cmp(str s1, str s2)
    and memory allocator |allocator|.
    Returns |NULL| if memory allocation failed. */
 
-map_t map_create(int flags)
+map_t map_create(enum map_flags flags)
 {
 	map_t tree;
 
@@ -148,6 +148,8 @@ void ** map_get( map_t tree, str key)
 	if( !( tree->flags & AVLMAP_NO_DUPLICATE ) )
 	{
 		avl_malloc(key_copy.s, key.len, tree->flags );
+		if (!key_copy.s)
+			return NULL;
 
 		memcpy(key_copy.s,key.s,key.len);
 		key_copy.len = key.len;

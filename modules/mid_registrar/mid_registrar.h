@@ -52,24 +52,37 @@ enum mid_reg_mode {
 };
 
 enum mid_reg_insertion_mode {
-	INSERT_BY_CONTACT,
-	INSERT_BY_PATH,
+	MR_REPLACE_USER,
+	MR_APPEND_PARAM,
 };
 
-enum mid_reg_matching_mode {
-	MATCH_BY_PARAM,
-	MATCH_BY_USER,
+struct ct_mapping {
+	str req_ct_uri;
+	str new_username;
+	int zero_expires;
+	uint64_t ctid;
+
+	int expires;
+	unsigned int methods;
+	qvalue_t q;
+	str received;
+	str instance;
+
+	struct list_head list;
 };
 
 /* fields marked with [NEW] must be persisted into usrloc */
 struct mid_reg_info {
-	str main_reg_uri; /* [NEW] De-REGISTER next hop */
+	str main_reg_uri;      /* [NEW] De-REGISTER URI */
+	str main_reg_next_hop; /* [NEW] De-REGISTER next hop */
 
 	str ct_uri;  /* [NEW] De-REGISTER Contact hf value */
 
 	str to;     /* [NEW] De-REGISTER */
 	str from;   /* [NEW] De-REGISTER */
 	str callid; /* De-REGISTER */
+
+	unsigned int last_cseq;
 
 	int reg_flags; /* temporary holder until response arrives */
 	int star;      /* temporary holder until response arrives */
@@ -82,8 +95,19 @@ struct mid_reg_info {
 	unsigned int last_reg_ts; /* [NEW] used to absorb/relay new REGISTERs
 	                                   marks the last successful reg */
 
+	int skip_dereg;
+	struct list_head ct_mappings;
+
 	udomain_t *dom; /* used during 200 OK ul_api operations */
 	str aor;        /* used during both "reg out" and "resp in" */
+
+	/* ucontact_info dup'ed fields */
+	str user_agent;
+	unsigned int ul_flags;
+	unsigned int cflags;
+
+	int reply_processed;
+	rw_lock_t *tm_lock;
 };
 
 struct save_ctx {
@@ -97,6 +121,8 @@ struct save_ctx {
 	unsigned int min_expires;
 	unsigned int max_expires;
 };
+
+extern rw_lock_t *tm_retrans_lk;
 
 extern str realm_prefix;
 extern int case_sensitive;
@@ -113,8 +139,8 @@ extern int retry_after;
 extern unsigned int outgoing_expires;
 
 extern enum mid_reg_mode reg_mode;
-extern enum mid_reg_insertion_mode insertion_mode;
-extern enum mid_reg_matching_mode matching_mode;
+extern enum mid_reg_insertion_mode ctid_insertion;
+extern str ctid_param;
 
 extern str register_method;
 extern str contact_hdr;
@@ -132,9 +158,8 @@ extern str gruu_secret;
 
 extern int tcp_persistent_flag;
 
-extern int ucontact_data_idx;
-extern int urecord_data_idx;
-
+struct mid_reg_info *mri_alloc(void);
+struct mid_reg_info *mri_dup(struct mid_reg_info *mri);
 void mri_free(struct mid_reg_info *mri);
 
 void set_ct(struct mid_reg_info *ct);
@@ -143,5 +168,6 @@ struct mid_reg_info *get_ct(void);
 int extract_aor(str* _uri, str* _a,str *sip_instance,str *call_id);
 
 int get_expires_hf(struct sip_msg* _m);
+str get_extra_ct_params(struct sip_msg *msg);
 
 #endif /* __MID_REG_ */

@@ -63,9 +63,10 @@ int * rl_network_count;	/* flag for counting network algo users */
 /* these only change in the mod_init() process -- no locking needed */
 int rl_timer_interval = RL_TIMER_INTERVAL;
 
-int accept_repl_pipes = 0;
+/* specify limit per second by defualt */
+int rl_limit_per_interval = 0;
+
 int rl_repl_cluster = 0;
-int repl_pipes_auth_check = 0;
 struct clusterer_binds clusterer_api;
 
 int rl_window_size=10;   /* how many seconds the window shall hold*/
@@ -139,11 +140,10 @@ static param_export_t params[] = {
 	{ "repl_buffer_threshold",	INT_PARAM,	&rl_buffer_th			},
 	{ "repl_timer_interval",	INT_PARAM,	&rl_repl_timer_interval		},
 	{ "repl_timer_expire",		INT_PARAM,	&rl_repl_timer_expire		},
-	{ "accept_pipes_from",		INT_PARAM,	&accept_repl_pipes		},
-	{ "replicate_pipes_to",		INT_PARAM,	&rl_repl_cluster		},
-	{ "repl_pipes_auth_check",	INT_PARAM,	&repl_pipes_auth_check		},
+	{ "pipe_replication_cluster",	INT_PARAM,	&rl_repl_cluster		},
 	{ "window_size",            INT_PARAM,  &rl_window_size},
 	{ "slot_period",            INT_PARAM,  &rl_slot_period},
+	{ "limit_per_interval",     INT_PARAM,  &rl_limit_per_interval},
 	{ 0, 0, 0}
 };
 
@@ -170,23 +170,12 @@ static pv_export_t mod_items[] = {
 	{ {0, 0}, 0, 0, 0, 0, 0, 0, 0 }
 };
 
-static module_dependency_t *get_deps_clusterer(param_export_t *param)
-{
-	int cluster_id = *(int *)param->param_pointer;
-
-	if (cluster_id <= 0)
-		return NULL;
-
-	return alloc_module_dep(MOD_TYPE_DEFAULT, "clusterer", DEP_ABORT);
-}
-
 static dep_export_t deps = {
 	{ /* OpenSIPS module dependencies */
 		{ MOD_TYPE_NULL, NULL, 0 },
 	},
 	{ /* modparam dependencies */
-		{ "replicate_pipes_to",	get_deps_clusterer	},
-		{ "accept_pipes_from",	get_deps_clusterer	},
+		{ "pipe_replication_cluster",	get_deps_clusterer	},
 		{ NULL, NULL },
 	},
 };
@@ -336,21 +325,11 @@ static int mod_init(void)
 	}
 
 	if (rl_repl_cluster < 0) {
-		LM_ERR("Invalid rl_repl_cluster, must be 0 or a positive cluster id\n");
+		LM_ERR("Invalid replication_cluster, must be 0 or a positive cluster id\n");
 		return -1;
 	}
 
-	if (accept_repl_pipes < 0) {
-		LM_ERR("Invalid value for accept_repl_pipes, must be 0 or a positive cluster id\n");
-		return -1;
-	}
-
-	if (repl_pipes_auth_check < 0) {
-		LM_ERR("Invalid value for repl_pipes_auth_check, must be 0 or 1\n");
-		return -1;
-	}
-
-	if ( (rl_repl_cluster || accept_repl_pipes) && load_clusterer_api(&clusterer_api) != 0 ){
+	if (rl_repl_cluster && load_clusterer_api(&clusterer_api) != 0 ){
 		LM_DBG("failed to find clusterer API - is clusterer module loaded?\n");
 		return -1;
 	}
@@ -492,12 +471,11 @@ int hash[100] = {18, 50, 51, 39, 49, 68, 8, 78, 61, 75, 53, 32, 45, 77, 31,
  * @param update whether or not to inc call number
  * @return number of calls in the window
  */
-static inline int hist_check(rl_pipe_t *pipe)
+static inline int hist_check(rl_pipe_t *pipe, int update)
 {
 	#define U2MILI(__usec__) (__usec__/1000)
 	#define S2MILI(__sec__)  (__sec__ *1000)
 	int i;
-	int count;
 	int first_good_index;
 	int rl_win_ms = rl_window_size * 1000;
 
@@ -509,8 +487,8 @@ static inline int hist_check(rl_pipe_t *pipe)
 	/* first get values from our beloved replicated friends
 	 * current pipe counter will be calculated after this
 	 * iteration; no need for the old one */
-	pipe->counter=0;
-	count = rl_get_all_counters(pipe);
+	pipe->counter = 0;
+	pipe->counter = rl_get_all_counters(pipe);
 
 	gettimeofday(&tv, NULL);
 	if (pipe->rwin.start_time.tv_sec == 0) {
@@ -519,7 +497,7 @@ static inline int hist_check(rl_pipe_t *pipe)
 		pipe->rwin.start_index = 0;
 
 		/* we know it starts from 0 because we did memset when created*/
-		pipe->rwin.window[pipe->rwin.start_index]++;
+		pipe->rwin.window[pipe->rwin.start_index] += update;
 	} else {
 		start_total = S2MILI(pipe->rwin.start_time.tv_sec)
 							+ U2MILI(pipe->rwin.start_time.tv_usec);
@@ -535,7 +513,7 @@ static inline int hist_check(rl_pipe_t *pipe)
 
 			pipe->rwin.start_index = 0;
 			pipe->rwin.start_time = tv;
-			pipe->rwin.window[pipe->rwin.start_index]++;
+			pipe->rwin.window[pipe->rwin.start_index] += update;
 		} else if (now_total - start_total >= rl_win_ms) {
 			/* current time in interval [window_size; 2*window_size)
 			 * all the elements in [start_time; (ctime-window_size+1) are
@@ -562,14 +540,14 @@ static inline int hist_check(rl_pipe_t *pipe)
 			pipe->rwin.start_index = first_good_index;
 
 			/* count current call; it will be the last element in the window */
-			pipe->rwin.window[(pipe->rwin.start_index)
-					+ (pipe->rwin.window_size-1) % pipe->rwin.window_size]++;
+			pipe->rwin.window[((pipe->rwin.start_index)
+					+ (pipe->rwin.window_size-1)) % pipe->rwin.window_size] += update;
 
 		} else { /* now_total - start_total < rl_win_ms  */
 			/* no need to modify the window, the value is inside it;
 			 * we just need to increment the number of calls for
 			 * the current slot*/
-			pipe->rwin.window[(now_total-start_total)/rl_slot_period]++;
+			pipe->rwin.window[(now_total-start_total)/rl_slot_period] += update;
 		}
 	}
 
@@ -577,13 +555,31 @@ static inline int hist_check(rl_pipe_t *pipe)
 	for (i=0; i < pipe->rwin.window_size; i++)
 		pipe->counter += pipe->rwin.window[i];
 
-	count += pipe->counter;
-
-	return count > pipe->limit ? -1 : 1;
+	return pipe->counter > pipe->limit ? -1 : 1;
 
 	#undef U2MILI
 	#undef S2MILI
 }
+
+int hist_get_count(rl_pipe_t *pipe)
+{
+	/* do a NOP to validate the interval, then return the unchanged counter */
+	hist_check(pipe, 0);
+
+	return pipe->counter;
+}
+
+void hist_set_count(rl_pipe_t *pipe, long int value)
+{
+	if (value == 0) {
+		/* if 0, we need to clear all counters */
+		memset(pipe->rwin.window, 0,
+				pipe->rwin.window_size * sizeof(long int));
+		pipe->rwin.start_time.tv_sec = 0; /* force init */
+	} else
+		hist_check(pipe, value);
+}
+
 
 /**
  * runs the pipe's algorithm
@@ -599,8 +595,8 @@ int rl_pipe_check(rl_pipe_t *pipe)
 			LM_ERR("no algorithm defined for this pipe\n");
 			return 1;
 		case PIPE_ALGO_TAILDROP:
-			return (counter <= pipe->limit * rl_timer_interval) ?
-				1 : -1;
+			return (counter <= pipe->limit *
+				(rl_limit_per_interval ? 1 : rl_timer_interval)) ? 1 : -1;
 		case PIPE_ALGO_RED:
 			if (!pipe->load)
 				return 1;
@@ -610,7 +606,7 @@ int rl_pipe_check(rl_pipe_t *pipe)
 		case PIPE_ALGO_FEEDBACK:
 			return (hash[counter % 100] < *drop_rate) ? -1 : 1;
 		case PIPE_ALGO_HISTORY:
-			return hist_check(pipe);
+			return hist_check(pipe, 1);
 		default:
 			LM_ERR("ratelimit algorithm %d not implemented\n", pipe->algo);
 	}
@@ -767,8 +763,8 @@ struct mi_root* mi_bin_status(struct mi_root* cmd_tree, void* param)
 		goto free;
 	}
 
-	if (accept_repl_pipes &&
-		rl_bin_status(&rpl_tree->node, accept_repl_pipes, "repl_pipes_source", 17)<0) {
+	if (rl_repl_cluster &&
+		rl_bin_status(&rpl_tree->node, rl_repl_cluster, "repl_pipes_source", 17)<0) {
 		LM_ERR("cannot print status\n");
 		goto free;
 	}
@@ -815,7 +811,6 @@ static int pv_get_rl_count(struct sip_msg *msg, pv_param_t *param,
 
 	counter = rl_get_counter_value(&res->rs);
 	if (counter < 0) {
-		LM_ERR("Cannot get counter's value\n");
 		return pv_get_null(msg, param, res);
 	}
 

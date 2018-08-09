@@ -104,6 +104,7 @@ typedef int (*mod_proc_wrapper)();
 
 
 #define PROC_FLAG_INITCHILD  (1<<0)
+#define PROC_FLAG_HAS_IPC    (1<<1)
 
 
 struct cmd_export_ {
@@ -207,9 +208,7 @@ struct module_exports{
 	                                    after the fork */
 };
 
-extern char *mpath;
-extern char mpath_buf[];
-extern int  mpath_len;
+void set_mpath(const char *new_mpath);
 
 struct sr_module* modules; /*!< global module list*/
 

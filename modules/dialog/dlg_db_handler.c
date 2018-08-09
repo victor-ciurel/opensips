@@ -42,7 +42,7 @@
 #include "dlg_db_handler.h"
 #include "dlg_cb.h"
 #include "dlg_profile.h"
-
+#include "dlg_replication.h"
 
 str dlg_id_column			=	str_init(DLG_ID_COL);
 str call_id_column			=	str_init(CALL_ID_COL);
@@ -84,6 +84,8 @@ extern stat_var *early_dlgs;
 extern int dlg_bulk_del_no;
 
 static inline void set_final_update_cols(db_val_t *, struct dlg_cell *, int);
+static int persist_reinvite_pinging(struct dlg_cell *dlg);
+static int restore_reinvite_pinging(struct dlg_cell *dlg);
 
 #define SET_BIGINT_VALUE(_val, _bigint)\
 	do{\
@@ -601,10 +603,9 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 			GET_STR_VALUE(mangled_tu, values, 24,0,1);
 
 			/* add the 2 legs */
-			/* TODO - store SDP */
-			if ( (dlg_add_leg_info( dlg, &from_tag, &rroute1, &contact1,
+			if ( (dlg_update_leg_info(0, dlg, &from_tag, &rroute1, &contact1,
 			&cseq1, caller_sock,0,0,0)!=0) ||
-			(dlg_add_leg_info( dlg, &to_tag, &rroute2, &contact2,
+			(dlg_update_leg_info(1, dlg, &to_tag, &rroute2, &contact2,
 			&cseq2, callee_sock,&mangled_fu,&mangled_tu,0)!=0) ) {
 				LM_ERR("dlg_set_leg_info failed\n");
 				/* destroy the dialog */
@@ -639,13 +640,17 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 				dlg->mod_flags = VAL_INT(values+25);
 			}
 
-			/* top hiding */
+			/* dialog flags */
 			dlg->flags = VAL_INT(values+22);
 			if (dlg_db_mode==DB_MODE_SHUTDOWN)
 				dlg->flags |= DLG_FLAG_NEW;
 
-			/* calculcate timeout */
-			dlg->tl.timeout = (unsigned int)(VAL_INT(values+8)) + get_ticks();
+			/* mark this dialog as loaded from DB in order to drop it when
+			 * syncing from cluster is finished */
+			dlg->flags |= DLG_FLAG_FROM_DB;
+
+			/* calculate timeout */
+			dlg->tl.timeout = (unsigned int)(VAL_INT(values+8));
 			if (dlg->tl.timeout<=(unsigned int)time(0))
 				dlg->tl.timeout = 0;
 			else
@@ -682,6 +687,19 @@ static int load_dialog_info_from_db(int dlg_hash_size)
 					LM_CRIT("Unable to insert dlg %p into ping timer\n",dlg);
 				else {
 					/* reference dialog as kept in ping timer list */
+					ref_dlg(dlg,1);
+				}
+			}
+
+			if (dlg_has_reinvite_pinging(dlg)) {
+				/* re-populate Re-INVITE pinging fields */
+				if (restore_reinvite_pinging(dlg) != 0)
+					LM_ERR("failed to fetch some Re-INVITE pinging data\n");
+				else if (0 != insert_reinvite_ping_timer(dlg))
+					LM_CRIT("Unable to insert dlg %p into reinvite"
+					        "ping timer\n", dlg);
+				else {
+					/* reference dialog as kept in reinvite ping timer list */
 					ref_dlg(dlg,1);
 				}
 			}
@@ -837,7 +855,7 @@ int remove_dialog_from_db(struct dlg_cell * cell)
 	db_key_t match_keys[1] = { &dlg_id_column };
 
 	/*if the dialog hasn 't been yet inserted in the database*/
-	LM_DBG("trying to remove a dialog, update_flag is %i\n", cell->flags);
+	LM_DBG("trying to remove a dialog, flags are %u\n", cell->flags);
 	if (cell->flags & DLG_FLAG_NEW)
 		return 0;
 
@@ -932,8 +950,8 @@ int update_dialog_dbinfo(struct dlg_cell * cell)
 			&from_cseq_column,   &to_cseq_column,     &from_ping_cseq_column,
 			&to_ping_cseq_column,&flags_column,
 			&vars_column,        &profiles_column,    &sflags_column,
-			&mflags_column,      &from_route_column,
-			&to_route_column,    &from_contact_column,&to_contact_column};
+			&mflags_column,      &from_contact_column,
+			&to_contact_column,    &from_route_column,&to_route_column};
 
 	if(use_dialog_table()!=0)
 		return -1;
@@ -993,10 +1011,10 @@ int update_dialog_dbinfo(struct dlg_cell * cell)
 		SET_INT_VALUE(values+17, cell->flags &
 				~(DLG_FLAG_NEW|DLG_FLAG_CHANGED|DLG_FLAG_VP_CHANGED|DLG_FLAG_DB_DELETED));
 		set_final_update_cols(values+18, cell, 0);
-		SET_STR_VALUE(values+22, cell->legs[DLG_CALLER_LEG].route_set);
-		SET_STR_VALUE(values+23, cell->legs[callee_leg].route_set);
-		SET_STR_VALUE(values+24, cell->legs[DLG_CALLER_LEG].contact);
-		SET_STR_VALUE(values+25, cell->legs[callee_leg].contact);
+		SET_STR_VALUE(values+22, cell->legs[DLG_CALLER_LEG].contact);
+		SET_STR_VALUE(values+23, cell->legs[callee_leg].contact);
+		SET_STR_VALUE(values+24, cell->legs[DLG_CALLER_LEG].route_set);
+		SET_STR_VALUE(values+25, cell->legs[callee_leg].route_set);
 
 		CON_PS_REFERENCE(dialog_db_handle) = &my_ps_insert;
 
@@ -1018,7 +1036,8 @@ int update_dialog_dbinfo(struct dlg_cell * cell)
 		VAL_TYPE(values+16) = VAL_TYPE(values+17) = VAL_TYPE(values+20) =
 		VAL_TYPE(values+21) = DB_INT;
 
-		VAL_TYPE(values+13) = VAL_TYPE(values+14) = VAL_TYPE(values+19) = DB_STR;
+		VAL_TYPE(values+13) = VAL_TYPE(values+14) = VAL_TYPE(values+19) =
+		VAL_TYPE(values+22) = VAL_TYPE(values+23) = DB_STR;
 		VAL_TYPE(values+18) = DB_BLOB;
 
 		/* lock the entry */
@@ -1037,12 +1056,14 @@ int update_dialog_dbinfo(struct dlg_cell * cell)
 		SET_INT_VALUE(values+16,cell->legs[callee_leg].last_gen_cseq);
 		SET_INT_VALUE(values+17, cell->flags &
 				~(DLG_FLAG_CHANGED|DLG_FLAG_VP_CHANGED|DLG_FLAG_DB_DELETED));
-		set_final_update_cols(values+18, cell, 1);
+		set_final_update_cols(values+18, cell, 0);
+		SET_STR_VALUE(values+22, cell->legs[DLG_CALLER_LEG].contact);
+		SET_STR_VALUE(values+23, cell->legs[callee_leg].contact);
 
 		CON_PS_REFERENCE(dialog_db_handle) = &my_ps_update;
 
 		if((dialog_dbf.update(dialog_db_handle, (insert_keys), 0,
-						(values), (insert_keys+11), (values+11), 1, 11)) !=0){
+						(values), (insert_keys+11), (values+11), 1, 13)) !=0){
 			LM_ERR("could not update database info\n");
 			goto error;
 		}
@@ -1218,6 +1239,96 @@ str* write_dialog_profiles( struct dlg_profile_link *links)
 	return &o;
 }
 
+/* duplicate the SDPs/Contacts of caller/callee(s) into dlg val storage */
+static int persist_reinvite_pinging(struct dlg_cell *dlg)
+{
+	str caller_adv_sdp = str_init("CSDP"), callee_adv_sdp = str_init("cSDP");
+	str caller_adv_ct = str_init("Cct"), callee_adv_ct = str_init("cct");
+
+	if (dlg->legs_no[DLG_LEG_200OK] == 0) {
+		LM_DBG("non-confirmed dialogs are not DB persistent!\n");
+		return 0;
+	}
+
+	if (store_dlg_value_unsafe(dlg, &caller_adv_sdp,
+	                    &dlg->legs[DLG_CALLER_LEG].adv_sdp) != 0) {
+		LM_ERR("failed to persist caller advertised SDP\n");
+		return -1;
+	}
+
+	if (store_dlg_value_unsafe(dlg, &caller_adv_ct,
+	                    &dlg->legs[DLG_CALLER_LEG].adv_contact) != 0) {
+		LM_ERR("failed to persist caller advertised Contact\n");
+		return -1;
+	}
+
+	if (store_dlg_value_unsafe(dlg, &callee_adv_sdp,
+	                       &dlg->legs[dlg->legs_no[DLG_LEG_200OK]].adv_sdp) != 0) {
+		LM_ERR("failed to persist callee advertised SDP\n");
+		return -1;
+	}
+
+	if (store_dlg_value_unsafe(dlg, &callee_adv_ct,
+	           &dlg->legs[dlg->legs_no[DLG_LEG_200OK]].adv_contact) != 0) {
+		LM_ERR("failed to persist callee advertised Contact\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+/* re-populate the SDPs/Contacts of caller/callee(s) from dlg val storage */
+static int restore_reinvite_pinging(struct dlg_cell *dlg)
+{
+	str caller_adv_sdp = str_init("CSDP"), callee_adv_sdp = str_init("cSDP");
+	str caller_adv_ct = str_init("Cct"), callee_adv_ct = str_init("cct");
+	str out_buf;
+	int ret = 0;
+
+	if (fetch_dlg_value(dlg, &caller_adv_sdp, &out_buf, 0) != 0) {
+		LM_ERR("failed to fetch caller advertised SDP\n");
+		ret = -1;
+	} else {
+		if (shm_str_dup(&dlg->legs[DLG_CALLER_LEG].adv_sdp, &out_buf) != 0) {
+			LM_ERR("oom\n");
+			ret = -1;
+		}
+	}
+
+	if (fetch_dlg_value(dlg, &caller_adv_ct, &out_buf, 0) != 0) {
+		LM_ERR("failed to fetch caller advertised Contact\n");
+		ret = -1;
+	} else {
+		if (shm_str_dup(&dlg->legs[DLG_CALLER_LEG].adv_contact,
+		                &out_buf) != 0) {
+			LM_ERR("oom\n");
+			ret = -1;
+		}
+	}
+
+	if (fetch_dlg_value(dlg, &callee_adv_sdp, &out_buf, 0) != 0) {
+		LM_ERR("failed to fetch callee advertised SDP\n");
+		ret = -1;
+	} else {
+		if (shm_str_dup(&dlg->legs[DLG_FIRST_CALLEE_LEG].adv_sdp, &out_buf) != 0) {
+			LM_ERR("oom\n");
+			ret = -1;
+		}
+	}
+
+	if (fetch_dlg_value(dlg, &callee_adv_ct, &out_buf, 0) != 0) {
+		LM_ERR("failed to fetch callee advertised Contact\n");
+		ret = -1;
+	} else {
+		if (shm_str_dup(&dlg->legs[DLG_FIRST_CALLEE_LEG].adv_contact,
+		                &out_buf) != 0) {
+			LM_ERR("oom\n");
+			ret = -1;
+		}
+	}
+
+	return ret;
+}
 
 static inline void set_final_update_cols(db_val_t *vals, struct dlg_cell *cell,
 		int on_shutdown)
@@ -1232,7 +1343,12 @@ static inline void set_final_update_cols(db_val_t *vals, struct dlg_cell *cell,
 		/* it is very likely to flush the vals/profiles to DB, so trigger the
 		 * callback to see if other modules may want to add more vals/profiles
 		 before the actual writting */
-		run_dlg_callbacks( DLGCB_DB_WRITE_VP, cell, 0, DLG_DIR_NONE, NULL, 1);
+		run_dlg_callbacks( DLGCB_WRITE_VP, cell, 0, DLG_DIR_NONE, NULL, 1);
+	}
+
+	if (dlg_has_reinvite_pinging(cell)) {
+		if (persist_reinvite_pinging(cell) != 0)
+			LM_ERR("failed to persist some Re-INVITE pinging info\n");
 	}
 
 	if (on_shutdown || (db_flush_vp && (cell->flags & DLG_FLAG_VP_CHANGED))) {
@@ -1286,8 +1402,8 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 			&dlg_id_column,		&call_id_column,		&from_uri_column,
 			&from_tag_column,	&to_uri_column,			&to_tag_column,
 			&from_sock_column,	&to_sock_column,		&start_time_column,
-			&from_route_column,	&to_route_column, 	&from_contact_column,
-			&to_contact_column, &mangled_fu_column, &mangled_tu_column,
+			&from_route_column,	&to_route_column, 	&mangled_fu_column,
+			&mangled_tu_column, &from_contact_column, &to_contact_column,
 			/*update chunk */
 			&state_column,		&timeout_column,		&from_cseq_column,
 			&to_cseq_column,	&from_ping_cseq_column, &to_ping_cseq_column,
@@ -1322,7 +1438,7 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 		if (do_lock)
 			dlg_lock( d_table, entry);
 
-		for(cell = entry->first; cell != NULL;){
+		for (cell = entry->first; cell != NULL; ) {
 			callee_leg = callee_idx(cell);
 
 			if( (cell->flags & DLG_FLAG_NEW) != 0 ) {
@@ -1368,13 +1484,13 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 				SET_STR_VALUE(values+9, cell->legs[DLG_CALLER_LEG].route_set);
 				SET_STR_VALUE(values+10,
 					cell->legs[callee_leg].route_set);
-				SET_STR_VALUE(values+11, cell->legs[DLG_CALLER_LEG].contact);
-				SET_STR_VALUE(values+12,
+
+				SET_STR_VALUE(values+11,cell->legs[callee_leg].from_uri);
+				SET_STR_VALUE(values+12,cell->legs[callee_leg].to_uri);
+
+				SET_STR_VALUE(values+13, cell->legs[DLG_CALLER_LEG].contact);
+				SET_STR_VALUE(values+14,
 					cell->legs[callee_leg].contact);
-
-
-				SET_STR_VALUE(values+13,cell->legs[callee_leg].from_uri);
-				SET_STR_VALUE(values+14,cell->legs[callee_leg].to_uri);
 
 				SET_INT_VALUE(values+15, cell->state);
 				SET_INT_VALUE(values+16, (unsigned int)((unsigned int)time(0)
@@ -1386,10 +1502,9 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 				SET_INT_VALUE(values+19, cell->legs[DLG_CALLER_LEG].last_gen_cseq);
 				SET_INT_VALUE(values+20, cell->legs[callee_leg].last_gen_cseq);
 
-				set_final_update_cols(values+21, cell,
-					(on_shutdown) || (cell->flags&DLG_FLAG_CHANGED)  );
+				set_final_update_cols(values+21, cell, on_shutdown);
 				SET_INT_VALUE(values+25, cell->flags &
-					~(DLG_FLAG_CHANGED|DLG_FLAG_VP_CHANGED|DLG_FLAG_DB_DELETED));
+					~(DLG_FLAG_NEW|DLG_FLAG_CHANGED|DLG_FLAG_VP_CHANGED|DLG_FLAG_DB_DELETED));
 
 				CON_PS_REFERENCE(dialog_db_handle) = &my_ps_insert;
 				if (con_set_inslist(&dialog_dbf,dialog_db_handle,
@@ -1425,6 +1540,9 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 				SET_BIGINT_VALUE(values, (((long long)cell->h_entry << 32) |
 								 cell->h_id));
 
+				SET_STR_VALUE(values+13, cell->legs[DLG_CALLER_LEG].contact);
+				SET_STR_VALUE(values+14,
+					cell->legs[callee_leg].contact);
 				SET_INT_VALUE(values+15, cell->state);
 				SET_INT_VALUE(values+16, (unsigned int)((unsigned int)time(0)
 					 + cell->tl.timeout - get_ticks()) );
@@ -1433,13 +1551,13 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 				SET_INT_VALUE(values+19, cell->legs[DLG_CALLER_LEG].last_gen_cseq);
 				SET_INT_VALUE(values+20, cell->legs[callee_leg].last_gen_cseq);
 
-				set_final_update_cols(values+21, cell, 1);
+				set_final_update_cols(values+21, cell, on_shutdown);
 				SET_INT_VALUE(values+25, cell->flags);
 
 				CON_PS_REFERENCE(dialog_db_handle) = &my_ps_update;
 
 				if((dialog_dbf.update(dialog_db_handle, (insert_keys), 0,
-				(values), (insert_keys+15), (values+15), 1, 11)) !=0) {
+				(values), (insert_keys+13), (values+13), 1, 13)) !=0) {
 					LM_ERR("could not update database info\n");
 					cell = cell->next;
 					continue;
@@ -1454,7 +1572,7 @@ void dialog_update_db(unsigned int ticks, void *do_lock)
 				SET_BIGINT_VALUE(values, (((long long)cell->h_entry << 32) |
 								 cell->h_id));
 
-				set_final_update_cols(values+21, cell, 0);
+				set_final_update_cols(values+21, cell, on_shutdown);
 
 				CON_PS_REFERENCE(dialog_db_handle) = &my_ps_update_vp;
 
@@ -1628,10 +1746,9 @@ static int sync_dlg_db_mem(void)
 				GET_STR_VALUE(mangled_tu, values, 24,0,1);
 
 				/* add the 2 legs */
-				/* TODO SDP here */
-				if ( (dlg_add_leg_info( dlg, &from_tag, &rroute1, &contact1,
+				if ((dlg_update_leg_info(0, dlg, &from_tag, &rroute1, &contact1,
 				&cseq1, caller_sock,0,0,0)!=0) ||
-				(dlg_add_leg_info( dlg, &to_tag, &rroute2, &contact2,
+				(dlg_update_leg_info(1, dlg, &to_tag, &rroute2, &contact2,
 				&cseq2, callee_sock,&mangled_fu,&mangled_tu,0)!=0) ) {
 					LM_ERR("dlg_set_leg_info failed\n");
 					/* destroy the dialog */
@@ -1671,8 +1788,8 @@ static int sync_dlg_db_mem(void)
 				if (dlg_db_mode==DB_MODE_SHUTDOWN)
 					dlg->flags |= DLG_FLAG_NEW;
 
-				/* calculcate timeout */
-				dlg->tl.timeout = (unsigned int)(VAL_INT(values+8)) + get_ticks();
+				/* calculate timeout */
+				dlg->tl.timeout = (unsigned int)(VAL_INT(values+8));
 				if (dlg->tl.timeout<=(unsigned int)time(0))
 					dlg->tl.timeout = 0;
 				else
@@ -1713,6 +1830,19 @@ static int sync_dlg_db_mem(void)
 					}
 				}
 
+				if (dlg_has_reinvite_pinging(dlg)) {
+					/* re-populate Re-INVITE pinging fields */
+					if (restore_reinvite_pinging(dlg) != 0)
+						LM_ERR("failed to fetch some Re-INVITE pinging data\n");
+					else if (0 != insert_reinvite_ping_timer(dlg))
+						LM_CRIT("Unable to insert dlg %p into reinvite"
+						        "ping timer\n", dlg);
+					else {
+						/* reference dialog as kept in reinvite ping timer list */
+						ref_dlg(dlg,1);
+					}
+				}
+
 				if (dlg_db_mode == DB_MODE_DELAYED) {
 					/* to be later removed by timer */
 					ref_dlg(dlg,1);
@@ -1734,12 +1864,12 @@ static int sync_dlg_db_mem(void)
 					/* same state :-( no way to tell which is newer */
 
 					/* play nice and store longest timeout, although not always correct*/
-					db_timeout = (unsigned int)(VAL_INT(values+8)) +
-						get_ticks();
+					db_timeout = (unsigned int)(VAL_INT(values+8));
 					if (db_timeout<=(unsigned int)time(0))
 						db_timeout = 0;
 					else
 						db_timeout -= (unsigned int)time(0);
+					db_timeout += get_ticks();
 
 					if (known_dlg->tl.timeout < db_timeout)
 						known_dlg->tl.timeout = db_timeout;
@@ -1844,12 +1974,12 @@ static int sync_dlg_db_mem(void)
 					known_dlg->state = VAL_INT(values+7);
 
 					/* update timeout */
-					known_dlg->tl.timeout = (unsigned int)(VAL_INT(values+8)) +
-						get_ticks();
+					known_dlg->tl.timeout = (unsigned int)(VAL_INT(values+8));
 					if (known_dlg->tl.timeout<=(unsigned int)time(0))
 						known_dlg->tl.timeout = 0;
 					else
 						known_dlg->tl.timeout -= (unsigned int)time(0);
+					known_dlg->tl.timeout += get_ticks();
 
 					/* update cseqs */
 					if (!VAL_NULL(values+9)) {

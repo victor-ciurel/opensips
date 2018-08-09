@@ -195,16 +195,16 @@ static int set_probing_list(unsigned int type, void * val);
 static cmd_export_t cmds[]={
 	{"ds_select_dst",    (cmd_function)w_ds_select_dst, 2,
 		ds_select_fixup,  NULL,
-		REQUEST_ROUTE|FAILURE_ROUTE},
+		REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
 	{"ds_select_dst",    (cmd_function)w_ds_select_dst_limited, 3,
 		ds_select_fixup,  NULL,
-		REQUEST_ROUTE|FAILURE_ROUTE},
+		REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
 	{"ds_select_domain", (cmd_function)w_ds_select_domain, 2,
 		ds_select_fixup,  NULL,
-		REQUEST_ROUTE|FAILURE_ROUTE},
+		REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
 	{"ds_select_domain", (cmd_function)w_ds_select_domain_limited, 3,
 		ds_select_fixup,  NULL,
-		REQUEST_ROUTE|FAILURE_ROUTE},
+		REQUEST_ROUTE|BRANCH_ROUTE|FAILURE_ROUTE},
 	{"ds_next_dst",      (cmd_function)w_ds_next_dst,      0,
 		NULL , NULL,
 		REQUEST_ROUTE|FAILURE_ROUTE},
@@ -879,7 +879,7 @@ static int mod_init(void)
 		/* Register the weight-recalculation timer */
 		if (fetch_freeswitch_stats &&
 		    register_timer("ds-update-weights", ds_update_weights, NULL,
-		                   FS_HEARTBEAT_ITV, TIMER_FLAG_SKIP_ON_DELAY)<0) {
+		            fs_api.stats_update_interval, TIMER_FLAG_SKIP_ON_DELAY)<0) {
 			LM_ERR("failed to register timer for weight recalc!\n");
 			return -1;
 		}
@@ -1494,7 +1494,7 @@ static int w_ds_is_in_list(struct sip_msg *msg,char *ip,char *port,char *set,
 	}
 
 	return ds_is_in_list(msg, (gparam_t *)ip, (gparam_t *)port, i_set,
-			(int)(long)active_only, partition);
+			active_only ? *(int *)active_only : 0, partition);
 
 wrong_set_arg:
 		LM_ERR("wrong format for set argument\n");

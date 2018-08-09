@@ -36,6 +36,7 @@
 /* keep this first as it needs to include some glib h file with
  * special defines enabled (mainly sys/types.h) */
 #include "reactor.h"
+#include "pt_load.h"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -295,37 +296,41 @@ static inline void timer_ticker(struct os_timer *timer_list)
 	j = *jiffies;
 
 	for (t=timer_list;t; t=t->next){
-		if (j>=t->expires){
-			if (t->trigger_time) {
-				LM_WARN("timer task <%s> already scheduled for %lld ms"
-					" (now %lld ms), it may overlap..\n",
-					t->label, (utime_t)(t->trigger_time/1000),
-					((utime_t)*ijiffies/1000) );
-				if (t->flags&TIMER_FLAG_SKIP_ON_DELAY) {
-					/* skip this execution of the timer handler */
-					t->expires = j + t->interval;
-					continue;
-				} else if (t->flags&TIMER_FLAG_DELAY_ON_DELAY) {
-					/* delay the execution of the timer handler
-					   until the prev one is done */
-					continue;
-				} else {
-					/* launch the task now, even if overlapping with the
-					   already running one */
-				}
+		if (j < t->expires)
+			continue;
+
+		if (t->trigger_time) {
+			LM_WARN("timer task <%s> already scheduled %lld ms ago"
+				" (now %lld ms), %s\n", t->label, ((utime_t)*ijiffies/1000) -
+				(utime_t)(t->trigger_time/1000), ((utime_t)*ijiffies/1000),
+				t->flags&TIMER_FLAG_SKIP_ON_DELAY ? "skipping execution" :
+				t->flags&TIMER_FLAG_DELAY_ON_DELAY ? "delaying execution" :
+				"pushing a new one");
+
+			if (t->flags&TIMER_FLAG_SKIP_ON_DELAY) {
+				/* skip this execution of the timer handler */
+				t->expires = j + t->interval;
+				continue;
+			} else if (t->flags&TIMER_FLAG_DELAY_ON_DELAY) {
+				/* delay and merge the executions of the timer handler
+				   until the prev one is done */
+				continue;
+			} else {
+				/* launch the task now, even if overlapping with the
+				   already running one */
 			}
-			t->expires = j + t->interval;
-			t->trigger_time = *ijiffies;
-			t->time = j;
-			/* push the jobs for execution */
+		}
+		t->expires = j + t->interval;
+		t->trigger_time = *ijiffies;
+		t->time = j;
+		/* push the jobs for execution */
 again:
-			l = write( timer_pipe[1], &t, sizeof(t));
-			if (l==-1) {
-				if (errno==EAGAIN || errno==EINTR || errno==EWOULDBLOCK )
-					goto again;
-				LM_ERR("writing failed:[%d] %s, skipping job <%s> at %d s\n",
-					errno, strerror(errno),t->label, j);
-			}
+		l = write( timer_pipe[1], &t, sizeof(t));
+		if (l==-1) {
+			if (errno==EAGAIN || errno==EINTR || errno==EWOULDBLOCK )
+				goto again;
+			LM_ERR("writing failed:[%d] %s, skipping job <%s> at %d s\n",
+				errno, strerror(errno),t->label, j);
 		}
 	}
 }
@@ -342,37 +347,41 @@ static inline void utimer_ticker(struct os_timer *utimer_list)
 	uj = *ujiffies;
 
 	for ( t=utimer_list ; t ; t=t->next){
-		if (uj>=t->expires){
-			if (t->trigger_time) {
-				LM_WARN("utimer task <%s> already scheduled for %lld ms"
-					" (now %lld ms), it may overlap..\n",
-					t->label, (utime_t)(t->trigger_time/1000),
-					((utime_t)*ijiffies/1000) );
-				if (t->flags&TIMER_FLAG_SKIP_ON_DELAY) {
-					/* skip this execution of the timer handler */
-					t->expires = uj + t->interval;
-					continue;
-				} else if (t->flags&TIMER_FLAG_DELAY_ON_DELAY) {
-					/* delay the execution of the timer handler
-					   until the prev one is done */
-					continue;
-				} else {
-					/* launch the task now, even if overlapping with the
-					   already running one */
-				}
+		if (uj < t->expires)
+			continue;
+
+		if (t->trigger_time) {
+			LM_WARN("utimer task <%s> already scheduled %lld ms ago"
+				" (now %lld ms), %s\n", t->label, ((utime_t)*ijiffies/1000) -
+				(utime_t)(t->trigger_time/1000), ((utime_t)*ijiffies/1000),
+				t->flags&TIMER_FLAG_SKIP_ON_DELAY ? "skipping execution" :
+				t->flags&TIMER_FLAG_DELAY_ON_DELAY ? "delaying execution" :
+				"pushing a new one");
+
+			if (t->flags&TIMER_FLAG_SKIP_ON_DELAY) {
+				/* skip this execution of the timer handler */
+				t->expires = uj + t->interval;
+				continue;
+			} else if (t->flags&TIMER_FLAG_DELAY_ON_DELAY) {
+				/* delay the execution of the timer handler
+				   until the prev one is done */
+				continue;
+			} else {
+				/* launch the task now, even if overlapping with the
+				   already running one */
 			}
-			t->expires = uj + t->interval;
-			t->trigger_time = *ijiffies;
-			t->time = uj;
-			/* push the jobs for execution */
+		}
+		t->expires = uj + t->interval;
+		t->trigger_time = *ijiffies;
+		t->time = uj;
+		/* push the jobs for execution */
 again:
-			l = write( timer_pipe[1], &t, sizeof(t));
-			if (l==-1) {
-				if (errno==EAGAIN || errno==EINTR || errno==EWOULDBLOCK )
-					goto again;
-				LM_ERR("writing failed:[%d] %s, skipping job <%s> at %lld us\n",
-					errno, strerror(errno),t->label, uj);
-			}
+		l = write( timer_pipe[1], &t, sizeof(t));
+		if (l==-1) {
+			if (errno==EAGAIN || errno==EINTR || errno==EWOULDBLOCK )
+				goto again;
+			LM_ERR("writing failed:[%d] %s, skipping job <%s> at %lld us\n",
+				errno, strerror(errno),t->label, uj);
 		}
 	}
 }
@@ -576,7 +585,8 @@ int start_timer_processes(void)
 	 * was unable to detect timeouts.
 	 */
 
-	if ( (pid=internal_fork("time_keeper"))<0 ) {
+	if ( (pid=internal_fork("time_keeper",
+	OSS_FORK_NO_IPC|OSS_FORK_NO_LOAD))<0 ) {
 		LM_CRIT("cannot fork time keeper process\n");
 		goto error;
 	} else if (pid==0) {
@@ -588,7 +598,7 @@ int start_timer_processes(void)
 	}
 
 	/* fork a timer-trigger process */
-	if ( (pid=internal_fork("timer"))<0 ) {
+	if ( (pid=internal_fork("timer", OSS_FORK_NO_IPC|OSS_FORK_NO_LOAD))<0 ) {
 		LM_CRIT("cannot fork timer process\n");
 		goto error;
 	} else if (pid==0) {
@@ -607,27 +617,32 @@ error:
 
 inline static int handle_io(struct fd_map* fm, int idx,int event_type)
 {
+	int n=0;
+
+	pt_become_active();
 	switch(fm->type){
 		case F_TIMER_JOB:
 			handle_timer_job();
-			return 0;
+			break;
 		case F_SCRIPT_ASYNC:
 			async_script_resume_f( &fm->fd, fm->data);
-			return 0;
+			break;
 		case F_FD_ASYNC:
 			async_fd_resume( &fm->fd, fm->data);
-			return 0;
+			break;
 		case F_LAUNCH_ASYNC:
 			async_launch_resume( &fm->fd, fm->data);
-			return 0;
+			break;
 		case F_IPC:
-			ipc_handle_job();
-			return 0;
+			ipc_handle_job(fm->fd);
+			break;
 		default:
 			LM_CRIT("unknown fd type %d in Timer Extra\n", fm->type);
-			return -1;
+			n = -1;
+			break;
 	}
-	return -1;
+	pt_become_idle();
+	return n;
 }
 
 int timer_proc_reactor_init(void)
@@ -639,7 +654,7 @@ int timer_proc_reactor_init(void)
 	}
 
 	/* init: start watching for the IPC jobs */
-	if (reactor_add_reader( IPC_FD_READ_SELF, F_IPC, RCT_PRIO_ASYNC,NULL)<0){
+	if (reactor_add_reader(IPC_FD_READ_SELF, F_IPC, RCT_PRIO_ASYNC, NULL)<0){
 		LM_CRIT("failed to add IPC pipe to reactor\n");
 		goto error;
 	}
@@ -662,7 +677,7 @@ int start_timer_extra_processes(int *chd_rank)
 	pid_t pid;
 
 	(*chd_rank)++;
-	if ( (pid=internal_fork( "Timer handler"))<0 ) {
+	if ( (pid=internal_fork( "Timer handler", 0))<0 ) {
 		LM_CRIT("cannot fork Timer handler process\n");
 		return -1;
 	} else if (pid==0) {

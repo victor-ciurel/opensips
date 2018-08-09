@@ -1,32 +1,4 @@
-DISPATCHER Module
-
-Daniel-Constantin Mierla
-
-   <team@voice-system.ro>
-
-Edited by
-
-Ovidiu Sas
-
-   <osas@voipembedded.com>
-
-Edited by
-
-Daniel-Constantin Mierla
-
-   <team@voice-system.ro>
-
-Edited by
-
-Carsten Bock
-
-   BASIS AudioNet GmbH
-
-   Copyright © 2004 FhG FOKUS
-
-   Copyright © 2005-2010 Voice-System.RO
-   Revision History
-   Revision $Revision: 6771 $ $Date$
+dispatcher Module
      __________________________________________________________
 
    Table of Contents
@@ -103,6 +75,21 @@ Carsten Bock
               1.7.1. OpenSIPS config file
 
    2. Frequently Asked Questions
+   3. Contributors
+
+        3.1. By Commit Statistics
+        3.2. By Commit Activity
+
+   4. Documentation
+
+        4.1. Contributors
+
+   List of Tables
+
+   3.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   3.2. Most recently active contributors^(1) to this module
 
    List of Examples
 
@@ -673,7 +660,8 @@ modparam("dispatcher", "socket_col", "my_sock")
    stats arrive from FreeSWITCH. The update formula is shown below
    (FreeSWITCH stats are highlighted in bold):
 
-   weight = 100 * (Idle-CPU / 100) * (1 - Sessions / Max-Sessions)
+   weight = 100 * (Idle-CPU / 100) * (1 - Session-Count /
+   Max-Sessions)
 
    Default value is 0 (disabled).
 
@@ -774,7 +762,8 @@ modparam("dispatcher", "max_freeswitch_weight", 1000)
    position of each dispatching id in the list: first one has the
    higher priority, followed by the second one and so on.
 
-   This function can be used from REQUEST_ROUTE and FAILURE_ROUTE.
+   This function can be used from REQUEST_ROUTE, BRANCH_ROUTE and
+   FAILURE_ROUTE.
 
    Example 1.33. ds_select_dst usage
 ...
@@ -805,7 +794,8 @@ ds_select_dst("$var(part_name):$var(setid)","$var(alg)","$var(flags)");
    can use 'ds_next_domain()' to use next address to achieve
    serial forking to all possible destinations.
 
-   This function can be used from REQUEST_ROUTE and FAILURE_ROUTE.
+   This function can be used from REQUEST_ROUTE, BRANCH_ROUTE and
+   FAILURE_ROUTE.
 
 1.4.3.  ds_next_dst([partition_name])
 
@@ -949,21 +939,17 @@ the partition called 'part2'
    Name: ds_set_state
 
    Parameters:
-     * _state_ : state of the destination address
+     * state : state of the destination address
           + “a”: active
           + “i”: inactive
           + “p”: probing
-     * _group_: partition name followed by colon and destination
+     * group: partition name followed by colon and destination
        group id. If the partition name is omitted, the default
        partition will be used
-     * _address_: address of the destination in the _group_
+     * address: address of the destination in the group
 
    MI FIFO Command Format:
-:ds_set_state:_reply_fifo_file_
-_state_
-_group_
-_address_
-_empty_line_
+opensipsctl fifo ds_set_state a 2 sip:10.0.0.202
 
 1.5.2.  ds_list
 
@@ -977,8 +963,7 @@ _empty_line_
        fields to the listing
 
    MI FIFO Command Format:
-:ds_list:_reply_fifo_file_
-_empty_line_
+opensipsctl fifo ds_list
 
 1.5.3.  ds_reload
 
@@ -991,8 +976,8 @@ _empty_line_
      * partition (optional) - name of the partition to be
        reloaded.
 
-   MI DATAGRAM Command Format:
-":ds_reload:\n."
+   MI FIFO Command Format:
+opensipsctl fifo ds_reload
 
 1.6. Exported Events
 
@@ -1153,3 +1138,95 @@ Chapter 2. Frequently Asked Questions
 
        Please follow the guidelines provided at:
        https://github.com/OpenSIPS/opensips/issues
+
+Chapter 3. Contributors
+
+3.1. By Commit Statistics
+
+   Table 3.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Bogdan-Andrei Iancu (@bogdan-iancu) 136 85 2387 1782
+   2. Daniel-Constantin Mierla (@miconda) 82 39 3372 844
+   3. Liviu Chircu (@liviuchircu) 60 43 1149 366
+   4. Andrei Datcu (@andrei-datcu) 48 15 2153 846
+   5. Ionut Ionita (@ionutrazvanionita) 44 17 1145 969
+   6. Ovidiu Sas (@ovidiusas) 31 17 705 434
+   7. Razvan Crainea (@razvancrainea) 26 20 403 77
+   8. Henning Westerholt (@henningw) 11 7 93 125
+   9. Carsten Bock 11 4 713 18
+   10. Vlad Paiu (@vladpaiu) 9 7 17 29
+
+   All remaining contributors: Ionel Cerghit (@ionel-cerghit),
+   Elena-Ramona Modroiu, Vlad Patrascu (@rvlad-patrascu), Klaus
+   Darilion, Anca Vamanu, Jarrod Baumann (@jarrodb), Walter Doekes
+   (@wdoekes), Nick Altmann (@nikbyte), Jan Janak (@janakj),
+   Andrei Pelinescu-Onciul, Stanislaw Pitucha, Federico Cabiddu,
+   Konstantin Bokarius, Andreas Granig, John Riordan, Aron
+   Podrigal, Julián Moreno Patiño, Kevin McAllister, Peter
+   Lemenkov (@lemenkov), UnixDev, David Sanders, Edson Gellert
+   Schubert.
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+3.2. By Commit Activity
+
+   Table 3.2. Most recently active contributors^(1) to this module
+                      Name                   Commit Activity
+   1.  Peter Lemenkov (@lemenkov)          Jun 2018 - Jun 2018
+   2.  Liviu Chircu (@liviuchircu)         Aug 2012 - Jun 2018
+   3.  Vlad Patrascu (@rvlad-patrascu)     May 2017 - May 2018
+   4.  Nick Altmann (@nikbyte)             Mar 2012 - Mar 2018
+   5.  Razvan Crainea (@razvancrainea)     May 2011 - Dec 2017
+   6.  Bogdan-Andrei Iancu (@bogdan-iancu) Oct 2005 - Jan 2017
+   7.  Ionel Cerghit (@ionel-cerghit)      Jul 2015 - Jun 2016
+   8.  Ionut Ionita (@ionutrazvanionita)   Jul 2014 - May 2016
+   9.  Julián Moreno Patiño                Feb 2016 - Feb 2016
+   10. Jarrod Baumann (@jarrodb)           Feb 2016 - Feb 2016
+
+   All remaining contributors: Ovidiu Sas (@ovidiusas), David
+   Sanders, Aron Podrigal, Andrei Datcu (@andrei-datcu), Vlad Paiu
+   (@vladpaiu), Walter Doekes (@wdoekes), Stanislaw Pitucha, Anca
+   Vamanu, John Riordan, UnixDev, Kevin McAllister, Klaus
+   Darilion, Carsten Bock, Daniel-Constantin Mierla (@miconda),
+   Henning Westerholt (@henningw), Konstantin Bokarius, Edson
+   Gellert Schubert, Federico Cabiddu, Elena-Ramona Modroiu,
+   Andreas Granig, Andrei Pelinescu-Onciul, Jan Janak (@janakj).
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 4. Documentation
+
+4.1. Contributors
+
+   Last edited by: Peter Lemenkov (@lemenkov), Liviu Chircu
+   (@liviuchircu), Vlad Patrascu (@rvlad-patrascu), Nick Altmann
+   (@nikbyte), Razvan Crainea (@razvancrainea), Bogdan-Andrei
+   Iancu (@bogdan-iancu), Ionel Cerghit (@ionel-cerghit), Jarrod
+   Baumann (@jarrodb), Ovidiu Sas (@ovidiusas), Ionut Ionita
+   (@ionutrazvanionita), Andrei Datcu (@andrei-datcu), Vlad Paiu
+   (@vladpaiu), Walter Doekes (@wdoekes), Stanislaw Pitucha, Anca
+   Vamanu, Klaus Darilion, Daniel-Constantin Mierla (@miconda),
+   Konstantin Bokarius, Carsten Bock, Edson Gellert Schubert,
+   Elena-Ramona Modroiu.
+
+   Documentation Copyrights:
+
+   Copyright © 2005-2010 Voice Sistem SRL
+
+   Copyright © 2004 FhG FOKUS

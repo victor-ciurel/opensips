@@ -1,17 +1,4 @@
 rest_client Module
-
-Liviu Chircu
-
-   OpenSIPS Solutions
-   <liviu@opensips.org>
-
-Edited by
-
-Liviu Chircu
-
-   Copyright © 2013 www.opensips-solutions.com
-   Revision History
-   Revision $Revision$ $Date$
      __________________________________________________________
 
    Table of Contents
@@ -33,6 +20,7 @@ Liviu Chircu
               1.3.5. ssl_verifypeer (integer)
               1.3.6. ssl_verifyhost (integer)
               1.3.7. ssl_capath (integer)
+              1.3.8. curl_http_version (integer)
 
         1.4. Exported Functions
 
@@ -48,6 +36,7 @@ Liviu Chircu
                       [retcode_pv]]])
 
               1.4.4. rest_append_hf(txt)
+              1.4.5. rest_init_client_tls(tls_client_domain)
 
         1.5. Exported Asynchronous Functions
 
@@ -62,6 +51,22 @@ Liviu Chircu
                       recv_body_pv[, [recv_ctype_pv][,
                       [retcode_pv]]])
 
+   2. Contributors
+
+        2.1. By Commit Statistics
+        2.2. By Commit Activity
+
+   3. Documentation
+
+        3.1. Contributors
+
+   List of Tables
+
+   2.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   2.2. Most recently active contributors^(1) to this module
+
    List of Examples
 
    1.1. Setting the connection_timeout parameter
@@ -71,13 +76,15 @@ Liviu Chircu
    1.5. Setting the ssl_verifypeer parameter
    1.6. Setting the ssl_verifyhost parameter
    1.7. Setting the ssl_capath parameter
-   1.8. rest_get usage
-   1.9. rest_post usage
-   1.10. rest_put usage
-   1.11. rest_append_hf usage
-   1.12. async rest_get usage
-   1.13. async rest_post usage
-   1.14. async rest_put usage
+   1.8. Setting the curl_http_version parameter
+   1.9. rest_get usage
+   1.10. rest_post usage
+   1.11. rest_put usage
+   1.12. rest_append_hf usage
+   1.13. rest_init_client_tls usage
+   1.14. async rest_get usage
+   1.15. async rest_post usage
+   1.16. async rest_put usage
 
 Chapter 1. Admin Guide
 
@@ -188,6 +195,34 @@ modparam("rest_client", "ssl_verifyhost", 0)
 modparam("rest_client", "ssl_capath", "/home/opensips/ca_certificates")
 ...
 
+1.3.8. curl_http_version (integer)
+
+   Use a specific HTTP version for all requests. Possible values:
+
+     * 0 (default) - use whatever is deemed fit by libcurl
+     * 1 - enforce HTTP 1.0 requests
+     * 2 - enforce HTTP 1.1 requests
+     * 3 - attempt HTTP 2 requests. Fall back to HTTP 1.1 if HTTP
+       2 cannot be negotiated with the server. Requires libcurl
+       7.33.0+.
+     * 4 - attempt HTTP 2 over TLS (HTTPS) only. Fall back to HTTP
+       1.1 if HTTP 2 cannot be negotiated with the HTTPS server.
+       For clear text HTTP servers, use HTTP 1.1. Requires libcurl
+       7.47.0+.
+     * 5 - Issue non-TLS HTTP requests using HTTP 2 without HTTP
+       1.1 Upgrade. It requires prior knowledge that the server
+       supports HTTP 2 straight away. HTTPS requests will still do
+       HTTP/2 the standard way with negotiated protocol version in
+       the TLS handshake. Requires libcurl 7.49.0+.
+
+   more details here, where the documentation for this setting was
+   inspired (read: pilfered) from
+
+   Example 1.8. Setting the curl_http_version parameter
+...
+modparam("rest_client", "curl_http_version", 3)
+...
+
 1.4. Exported Functions
 
 1.4.1.  rest_get(url, body_pv[, [ctype_pv][, [retcode_pv]]])
@@ -210,10 +245,9 @@ modparam("rest_client", "ssl_capath", "/home/opensips/ca_certificates")
        attribute-value fields in the URL)
      * body_pv, ctype_pv, retcode_pv - pseudo-variables
 
-   This function can be used from the startup, branch, failure,
-   request and timer routes.
+   This function can be used from any route.
 
-   Example 1.8. rest_get usage
+   Example 1.9. rest_get usage
 ...
 # Example of querying a REST service to get the credit of an account
 $var(rc) = rest_get("http://getcredit.org/?account=$fU", "$var(credit)",
@@ -252,7 +286,7 @@ if ($var(rcode) >= 300) {
 
    The optional retcode_pv pseudo-var parameter can be given in
    order to retrieve the HTTP status code of the response message.
-   Since the module based on libcurl, a 0 value means no HTTP
+   Since the module is based on libcurl, a 0 value means no HTTP
    reply arrived at all.
 
    Possible parameter types
@@ -260,10 +294,9 @@ if ($var(rcode) >= 300) {
        or a String which includes pseudo-variables.
      * recv_body_pv, recv_ctype_pv, retcode_pv - pseudo-variables
 
-   This function can be used from the startup, branch, failure,
-   request and timer routes.
+   This function can be used from any route.
 
-   Example 1.9. rest_post usage
+   Example 1.10. rest_post usage
 ...
 # Creating a resource using a RESTful service with an HTTP POST request
 $var(rc) = rest_post("http://myserver.org/register_user", "$fU", , "$var
@@ -303,7 +336,7 @@ if ($var(rcode) >= 300) {
 
    The optional retcode_pv pseudo-var parameter can be given in
    order to retrieve the HTTP status code of the response message.
-   Since the module based on libcurl, a 0 value means no HTTP
+   Since the module is based on libcurl, a 0 value means no HTTP
    reply arrived at all.
 
    Possible parameter types
@@ -311,10 +344,9 @@ if ($var(rcode) >= 300) {
        or a String which includes pseudo-variables.
      * recv_body_pv, recv_ctype_pv, retcode_pv - pseudo-variables
 
-   This function can be used from the startup, branch, failure,
-   request and timer routes.
+   This function can be used from any route.
 
-   Example 1.10. rest_put usage
+   Example 1.11. rest_put usage
 ...
 # Creating/Updating a resource using a RESTful service with an HTTP PUT
 request
@@ -347,10 +379,9 @@ if ($var(rcode) >= 300) {
        pseudo-variables. (useful for specifying additional
        attribute-value fields in the URL)
 
-   This function can be used from the startup, branch, failure,
-   request and timer routes.
+   This function can be used from any route.
 
-   Example 1.11. rest_append_hf usage
+   Example 1.12. rest_append_hf usage
 ...
 # Example of querying a REST service requiring additional headers
 
@@ -359,16 +390,38 @@ $var(rc) = rest_get("http://getcredit.org/?account=$fU", "$var(credit)")
 ;
 ...
 
+1.4.5.  rest_init_client_tls(tls_client_domain)
+
+   Force a specific TLS domain to be eventually used during the
+   next request. Refer to the tls_mgm module for additional info
+   regarding TLS client domains.
+
+   If using this parameter, you must also ensure that tls_mgm is
+   loaded and properly configured.
+
+   Parameter types
+     * tls_client_domain - string, pseudo-variable, or a string
+       which includes pseudo-variables.
+
+   This function can be used from any route.
+
+   Example 1.13. rest_init_client_tls usage
+...
+rest_init_client_tls("dom1");
+if (!rest_get("https://example.com"))
+    xlog("query failed\n");
+...
+
 1.5. Exported Asynchronous Functions
 
 1.5.1.  rest_get(url, body_pv[, [ctype_pv][, [retcode_pv]]])
 
    Sends a GET HTTP request. This function behaves exactly the
-   same as rest_get (in terms of input, output and processing),
+   same as rest_get() (in terms of input, output and processing),
    but in an asynchronous way. Script execution is suspended until
    the entire content of the HTTP response is available.
 
-   Example 1.12. async rest_get usage
+   Example 1.14. async rest_get usage
 route {
         ...
         async(rest_get("http://getcredit.org/?account=$fU", "$var(credit
@@ -398,11 +451,11 @@ $fU\n");
 [recv_ctype_pv][, [retcode_pv]]])
 
    Sends a POST HTTP request. This function behaves exactly the
-   same as rest_post (in terms of input, output and processing),
+   same as rest_post() (in terms of input, output and processing),
    but in an asynchronous way. Script execution is suspended until
    the entire content of the HTTP response is available.
 
-   Example 1.13. async rest_post usage
+   Example 1.15. async rest_post usage
 route {
         ...
         async(rest_post("http://myserver.org/register_user", "$fU", , "$
@@ -431,11 +484,11 @@ route [resume] {
 [recv_ctype_pv][, [retcode_pv]]])
 
    Sends a PUT HTTP request. This function behaves exactly the
-   same as rest_put (in terms of input, output and processing),
+   same as rest_put() (in terms of input, output and processing),
    but in an asynchronous way. Script execution is suspended until
    the entire content of the HTTP response is available.
 
-   Example 1.14. async rest_put usage
+   Example 1.16. async rest_put usage
 route {
         ...
         async(rest_put("http://myserver.org/users/$fU", "$var(userinfo)"
@@ -458,3 +511,68 @@ route [resume] {
 
         ...
 }
+
+Chapter 2. Contributors
+
+2.1. By Commit Statistics
+
+   Table 2.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Liviu Chircu (@liviuchircu) 79 49 2540 522
+   2. Ionut Ionita (@ionutrazvanionita) 23 12 663 262
+   3. Razvan Crainea (@razvancrainea) 9 7 26 11
+   4. Jarrod Baumann (@jarrodb) 6 3 131 32
+   5. Agalya Ramachandran (@AgalyaR) 6 2 354 1
+   6. Bogdan-Andrei Iancu (@bogdan-iancu) 5 3 94 46
+   7. Vlad Patrascu (@rvlad-patrascu) 5 3 21 22
+   8. Ryan Bullock (@rrb3942) 5 2 91 77
+   9. Peter Lemenkov (@lemenkov) 3 1 1 1
+   10. Andrey Vorobiev (@andrey-vorobiev) 2 1 4 0
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+2.2. By Commit Activity
+
+   Table 2.2. Most recently active contributors^(1) to this module
+                      Name                   Commit Activity
+   1.  Liviu Chircu (@liviuchircu)         Mar 2013 - Aug 2018
+   2.  Vlad Patrascu (@rvlad-patrascu)     May 2017 - Jul 2018
+   3.  Peter Lemenkov (@lemenkov)          Jun 2018 - Jun 2018
+   4.  Razvan Crainea (@razvancrainea)     Aug 2015 - Nov 2017
+   5.  Ionut Ionita (@ionutrazvanionita)   Feb 2017 - Mar 2017
+   6.  Bogdan-Andrei Iancu (@bogdan-iancu) Oct 2014 - Mar 2017
+   7.  Andrey Vorobiev (@andrey-vorobiev)  Feb 2017 - Feb 2017
+   8.  Ryan Bullock (@rrb3942)             Jan 2017 - Jan 2017
+   9.  Agalya Ramachandran (@AgalyaR)      Oct 2016 - Oct 2016
+   10. Jarrod Baumann (@jarrodb)           Apr 2015 - May 2015
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 3. Documentation
+
+3.1. Contributors
+
+   Last edited by: Liviu Chircu (@liviuchircu), Vlad Patrascu
+   (@rvlad-patrascu), Peter Lemenkov (@lemenkov), Razvan Crainea
+   (@razvancrainea), Agalya Ramachandran (@AgalyaR), Jarrod
+   Baumann (@jarrodb), Bogdan-Andrei Iancu (@bogdan-iancu).
+
+   Documentation Copyrights:
+
+   Copyright © 2013 www.opensips-solutions.com

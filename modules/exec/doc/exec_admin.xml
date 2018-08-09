@@ -4,7 +4,7 @@
 
 	<title>&adminguide;</title>
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 		The Exec module enables the execution of external commands from the
@@ -71,7 +71,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -102,9 +102,9 @@
 	</section>
 	</section>
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
-	<section>
+	<section id="param_setvars" xreflabel="setvars">
 		<title><varname>setvars</varname> (integer)</title>
 		<para>
 		Set to 1 to enable setting all above-mentioned environment variables
@@ -128,13 +128,22 @@ modparam("exec", "setvars", 1)
 </programlisting>
 		</example>
 	</section>
-	<section id='time_to_kill' xreflabel='time_to_kill'>
-		<title>
-			<varname>time_to_kill</varname> (integer)
-		</title>
+	<section id="param_time_to_kill" xreflabel="time_to_kill">
+		<title><varname>time_to_kill</varname> (integer)</title>
 		<para>
-		Specifies the longest time (in seconds) that a program is allowed to
-		execute. Once this duration is exceeded, the program is terminated (SIGTERM)
+		If set, this parameter specifies the longest time (in seconds) that a
+		program is allowed to execute. Once this duration is exceeded, the
+		program is terminated (SIGTERM).
+		</para>
+		<para>
+		NOTE: due to internal limitations, a SIGTERM will actually be sent to
+		<emphasis role='bold'>all</emphasis> job pids once the "time_to_kill"
+		expiration timeout hits. On a standard system, this should have no
+		side-effects, as pids are monotonically increasing in a slow manner,
+		and OpenSIPS should run under the "opensips" user, thus rendering it
+		unable to terminate non-child processes. If this is not the case on
+		your system, do not use the OpenSIPS "time_to_kill" feature -- rather
+		implement it within your external app!
 		</para>
 		<para>
 		<emphasis>
@@ -152,9 +161,9 @@ modparam("exec", "time_to_kill", 20)
 	</section>
 
 	</section>
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
-	<section id="exec_sync_exec">
+	<section id="func_exec" xreflabel="exec()">
 		<title>
 		<function moreinfo="none">exec(command, [stdin], [stdout], [stderr], [envavp])</function>
 		</title>
@@ -235,13 +244,13 @@ exec("/home/../myscript.sh", "this is my $var(input) for exec\n", , , "$avp(env)
 		</example>
 	</section>
 
-	<section>
+	<section id="func_exec_dset" xreflabel="exec_dset()">
 		<title>
 		<function moreinfo="none">exec_dset(command) (DEPRECATED)</function>
 		</title>
 		<para>
 		WARNING - this function is deprecated and it will be remove in the next
-		version - please use the exec() function (  <xref linkend="exec_sync_exec"/> ).
+		version - please use the exec() function (  <xref linkend="func_exec"/> ).
 		</para>
 		<para>
 		Executes an external command. The current &ruri; is appended to the command
@@ -277,13 +286,13 @@ exec_dset("ruri-changer.sh '$ct'");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_exec_msg" xreflabel="exec_msg()">
 		<title>
 		<function moreinfo="none">exec_msg(command) (DEPRECATED)</function>
 		</title>
 		<para>
 		WARNING - this function is deprecated and it will be remove in the next
-		version - please use the exec() function (  <xref linkend="exec_sync_exec"/> ).
+		version - please use the exec() function (  <xref linkend="func_exec"/> ).
 		</para>
 		<para>
 		Executes an external command. The current SIP message is passed to it in
@@ -323,13 +332,13 @@ exec_msg("call-logger.sh '$ct' >> /var/log/call-logger/'$rU'.calls");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_exec_avp" xreflabel="exec_avp()">
 		<title>
 		<function moreinfo="none">exec_avp(command[, avplist]) (DEPRECATED)</function>
 		</title>
 		<para>
 		WARNING - this function is deprecated and it will be remove in the next
-		version - please use the exec() function (  <xref linkend="exec_sync_exec"/> ).
+		version - please use the exec() function (  <xref linkend="func_exec"/> ).
 		</para>
 		<para>
 		Executes an external command. Each output line of the command
@@ -371,13 +380,13 @@ exec_avp("get-subscriber-details.sh '$rU'", "$avp(credit) $avp(contract_model)")
 		</example>
 	</section>
 
-	<section>
+	<section id="func_exec_getenv" xreflabel="exec_getenv()">
 		<title>
 		<function moreinfo="none">exec_getenv(environment_variable[, avp]) (DEPRECATED)</function>
 		</title>
 		<para>
 		WARNING - this function is deprecated and it will be remove in the next
-		version - please use the exec() function (  <xref linkend="exec_sync_exec"/> ).
+		version - please use the exec() function (  <xref linkend="func_exec"/> ).
 		</para>
 		<para>
 		Obtains the value of a UNIX evironment_variable. The value is saved
@@ -418,13 +427,13 @@ exec_getenv("HOSTNAME", "$avp(localhost)");
 
 	<section>
 	<title>Exported Asyncronous Functions</title>
-	<section>
+	<section id="afunc_exec" xreflabel="exec()">
 		<title>
 		<function moreinfo="none">exec(command[,input[,output[,error[,env]]]])</function>
 		</title>
 		<para>
 		Executes an external command. This function does exactly the same as
-		<xref linkend="exec_sync_exec"/> (in terms of input, output and processing),
+		<xref linkend="func_exec"/> (in terms of input, output and processing),
 		but in an asynchronous way. The script execution is suspended until the external script
 		provided all its output. OpenSIPS waits for the external script to close its output
 		stream, not necessarily to terminate (so the script may still be running when OpenSIPS
@@ -458,7 +467,7 @@ route[resume] {
 	<title>Known Issues</title>
 	<para>
 		When imposing an execution timeout using
-		<emphasis role='bold'><xref linkend="time_to_kill"/></emphasis>,
+		<emphasis role='bold'><xref linkend="param_time_to_kill"/></emphasis>,
 		make sure your "/bin/sh" is a shell which does not fork when executed,
 		case in which the job itself will not be killed, but rather its parent shell,
 		while the job is silently inherited by "init" and will continue to run.

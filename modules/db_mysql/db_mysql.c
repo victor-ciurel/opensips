@@ -31,7 +31,6 @@
 #include "../../sr_module.h"
 #include "../../db/db.h"
 #include "../../db/db_cap.h"
-
 #include "../tls_mgm/api.h"
 
 #include "dbase.h"
@@ -60,7 +59,7 @@ static cmd_export_t cmds[] = {
 
 struct tls_mgm_binds tls_api;
 struct tls_domain *tls_dom;
-str tls_client_domain_str;
+int use_tls;
 
 /*
  * Exported parameters
@@ -70,17 +69,34 @@ static param_export_t params[] = {
 	{"exec_query_threshold", INT_PARAM, &db_mysql_exec_query_threshold},
 	{"max_db_retries", INT_PARAM, &max_db_retries},
 	{"max_db_queries", INT_PARAM, &max_db_queries},
-	{"tls_client_domain", STR_PARAM, &tls_client_domain_str.s},
+	{"use_tls", INT_PARAM, &use_tls},
 	{0, 0, 0}
 };
 
+static module_dependency_t *get_deps_use_tls(param_export_t *param)
+{
+	if (*(int *)param->param_pointer == 0)
+		return NULL;
+
+	return alloc_module_dep(MOD_TYPE_DEFAULT, "tls_mgm", DEP_ABORT);
+}
+
+static dep_export_t deps = {
+	{
+		{ MOD_TYPE_NULL, NULL, 0 },
+	},
+	{
+		{ "use_tls", get_deps_use_tls },
+		{ NULL, NULL },
+	},
+};
 
 struct module_exports exports = {
 	"db_mysql",
 	MOD_TYPE_SQLDB,  /* class of this module */
 	MODULE_VERSION,
 	DEFAULT_DLFLAGS, /* dlopen flags */
-	NULL,            /* OpenSIPS module dependencies */
+	&deps,            /* OpenSIPS module dependencies */
 	cmds,
 	0,               /* exported async functions */
 	params,          /* module parameters */
@@ -98,10 +114,6 @@ struct module_exports exports = {
 
 static int mysql_mod_init(void)
 {
-	struct ip_addr *ip;
-	unsigned int port = 0;
-	str domain;
-
 	LM_DBG("mysql: MySQL client version is %s\n", mysql_get_client_info());
 	/* also register the event */
 	if (mysql_register_event() < 0) {
@@ -119,28 +131,9 @@ static int mysql_mod_init(void)
 		max_db_retries = 3;
 	}
 
-	if (tls_client_domain_str.s) {
-		tls_client_domain_str.len = strlen(tls_client_domain_str.s);
-		LM_INFO("using tls_mgm client domain '%.*s' for all MySQL connections\n",
-		        tls_client_domain_str.len, tls_client_domain_str.s);
-
-		if (parse_domain_def(tls_client_domain_str.s, &domain, &ip, &port) < 0) {
-			LM_ERR("failed to parse tls_client_domain '%.*s'\n",
-			       tls_client_domain_str.len, tls_client_domain_str.s);
-			return -1;
-		}
-
-		if (load_tls_mgm_api(&tls_api) != 0) {
-			LM_ERR("failed to load tls_mgm API! Is the \"tls_mgm\" module loaded?\n");
-			return -1;
-		}
-
-		tls_dom = tls_api.find_client_domain(ip, port);
-		if (tls_dom == NULL) {
-			LM_ERR("failed to match tls_client_domain '%.*s'!\n",
-			       tls_client_domain_str.len, tls_client_domain_str.s);
-			return -1;
-		}
+	if (use_tls && load_tls_mgm_api(&tls_api) != 0) {
+		LM_ERR("failed to load tls_mgm API!\n");
+		return -1;
 	}
 
 	return 0;

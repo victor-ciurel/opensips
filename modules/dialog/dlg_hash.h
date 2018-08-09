@@ -65,16 +65,22 @@
 #define DLG_FLAG_NEW			(1<<0)
 #define DLG_FLAG_CHANGED		(1<<1)
 #define DLG_FLAG_HASBYE			(1<<2)
-#define DLG_FLAG_BYEONTIMEOUT		(1<<3)
+#define DLG_FLAG_BYEONTIMEOUT	(1<<3)
 #define DLG_FLAG_ISINIT			(1<<4)
-#define DLG_FLAG_PING_CALLER		(1<<5)
-#define DLG_FLAG_PING_CALLEE		(1<<6)
-#define DLG_FLAG_TOPHIDING		(1<<7)
+#define DLG_FLAG_PING_CALLER	(1<<5)
+#define DLG_FLAG_PING_CALLEE	(1<<6)
+#define DLG_FLAG_FROM_DB		(1<<7)
 #define DLG_FLAG_VP_CHANGED		(1<<8)
 #define DLG_FLAG_DB_DELETED		(1<<9)
-#define DLG_FLAG_CSEQ_ENFORCE		(1<<10)
-#define DLG_FLAG_REINVITE_PING_CALLER	(1<<11)
-#define DLG_FLAG_REINVITE_PING_CALLEE	(1<<12)
+#define DLG_FLAG_CSEQ_ENFORCE	(1<<10)
+#define DLG_FLAG_REINVITE_PING_CALLER		(1<<11)
+#define DLG_FLAG_REINVITE_PING_CALLEE		(1<<12)
+#define DLG_FLAG_REINVITE_PING_ENGAGED_REQ	(1<<13)
+#define DLG_FLAG_REINVITE_PING_ENGAGED_REPL	(1<<14)
+
+#define dlg_has_reinvite_pinging(dlg) \
+	(dlg->flags & DLG_FLAG_REINVITE_PING_CALLER || \
+	 dlg->flags & DLG_FLAG_REINVITE_PING_CALLEE)
 
 #define DLG_CALLER_LEG         0
 #define DLG_FIRST_CALLEE_LEG   1
@@ -93,10 +99,10 @@ struct dlg_leg {
 	str from_uri;	/* FROM URI for this leg, in case of FROM URI mangling*/
 	str to_uri;		/* TO URI for this leg, in case of TO URI mangling */
 	str route_set;
-	str contact;
-	str th_sent_contact;	/* topology hiding advertised contact towards this leg - full header */
+	str contact;    /* this leg's Contact URI (most recent version) */
+	str adv_contact;	/* topology hiding advertised contact towards this leg - full header */
+	str adv_sdp;		/* latest SDP advertised towards this leg ( full body ), after all OpenSIPS changes */
 	str route_uris[64];
-	str sdp;		/* latest SDP provided by this leg ( full body ), after all OpenSIPS changes */
 	int nr_uris;
 	unsigned int last_gen_cseq; /* FIXME - think this can be atomic_t to avoid locking */
 	unsigned int last_inv_gen_cseq; /* used when translating ACKs */
@@ -105,6 +111,7 @@ struct dlg_leg {
 	struct socket_info *bind_addr;
 };
 
+#define leg_is_answered(dlg_leg) ((dlg_leg)->tag.s)
 
 #define DLG_LEGS_USED      0
 #define DLG_LEGS_ALLOCED   1
@@ -208,6 +215,28 @@ struct dlg_cell *get_current_dialog();
 #define dlg_unlock_dlg(_dlg) \
 	dlg_unlock( d_table, &(d_table->entries[_dlg->h_entry]))
 
+static inline int ensure_leg_array(int needed_legs, struct dlg_cell *dlg)
+{
+	struct dlg_leg *new_legs;
+
+	while (((int)dlg->legs_no[DLG_LEGS_ALLOCED] - needed_legs) < 0) {
+		new_legs = shm_realloc(dlg->legs,
+			(dlg->legs_no[DLG_LEGS_ALLOCED] + 2) * sizeof *new_legs);
+		if (!new_legs) {
+			LM_ERR("oom\n");
+			return -1;
+		}
+
+		dlg->legs = new_legs;
+		dlg->legs_no[DLG_LEGS_ALLOCED] += 2;
+		memset(dlg->legs + dlg->legs_no[DLG_LEGS_ALLOCED] - 2, 0,
+			2 * sizeof *new_legs);
+	}
+
+	return 0;
+}
+
+
 static inline str* dlg_leg_from_uri(struct dlg_cell *dlg,int leg_no)
 {
 	/* no mangling possible on caller leg */
@@ -262,7 +291,7 @@ void destroy_dlg(struct dlg_cell *dlg);
 		}\
 		if ((_dlg)->ref<=0) { \
 			unlink_unsafe_dlg( _d_entry, _dlg);\
-			LM_DBG("ref <=0 for dialog %p\n",_dlg);\
+			LM_DBG("ref <=0 for dialog %p, destroying it\n",_dlg);\
 			destroy_dlg(_dlg);\
 		}\
 	}while(0)
@@ -316,7 +345,13 @@ void destroy_dlg_table();
 struct dlg_cell* build_new_dlg(str *callid, str *from_uri,
 		str *to_uri, str *from_tag);
 
-int dlg_add_leg_info(struct dlg_cell *dlg, str* tag, str *rr,
+/**
+ * dlg_clone_callee_leg - Clone a callee leg and only fill in shared leg data
+ * @return: index of the new leg or -1 on error
+ */
+int dlg_clone_callee_leg(struct dlg_cell *dlg, int cloned_leg_idx);
+
+int dlg_update_leg_info(int leg_idx, struct dlg_cell *dlg, str* tag, str *rr,
 		str *contact,str *cseq, struct socket_info *sock,
 		str *mangled_from,str *mangled_to,str *sdp);
 
@@ -341,10 +376,11 @@ void unref_dlg(struct dlg_cell *dlg, unsigned int cnt);
 void ref_dlg(struct dlg_cell *dlg, unsigned int cnt);
 
 void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
-		int *new_state, int *unref, int last_dst_leg, char is_replicated);
+		int *new_state, int *unref, int last_dst_leg, char replicate_events);
 
 struct mi_root * mi_print_dlgs(struct mi_root *cmd, void *param );
 struct mi_root * mi_print_dlgs_ctx(struct mi_root *cmd, void *param );
+struct mi_root * mi_push_dlg_var(struct mi_root *cmd_tree, void *param );
 
 static inline void unref_dlg_destroy_safe(struct dlg_cell *dlg, unsigned int cnt)
 {

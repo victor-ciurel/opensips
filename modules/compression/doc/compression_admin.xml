@@ -3,7 +3,7 @@
 <chapter>
     <title>&adminguide;</title>
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 	This module implements message compression/decompression and base64 encoding
@@ -50,7 +50,7 @@
 	</section>
 
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 		<title>Dependencies</title>
 		<section>
 			<title>&osips; Modules</title>
@@ -83,10 +83,10 @@
 	</section>
 
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
 
-	<section>
+	<section id="param_mc_level" xreflabel="mc_level">
 		<title><varname>mc_level</varname> (int)</title>
 		<para>
 		This parameter ranges from 1 to 9 and it specifies the level of compression you want to do.
@@ -108,10 +108,10 @@ modparam("mc", "mc_level", "3")
 
 	</section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
 
-	<section>
+	<section id="func_mc_compress" xreflabel="mc_compress()">
 	<title>
 		<function moreinfo="none">mc_compress([algo], flags, [whitelist])</function>
 	</title>
@@ -248,7 +248,7 @@ xlog("compression registered\n");
 	</example>
 	</section>
 
-	<section>
+	<section id="func_mc_compact" xreflabel="mc_compact()">
 	<title>
 		<function moreinfo="none">mc_compact([whitelist])</function>
 	</title>
@@ -362,7 +362,7 @@ if (!mc_compact("Max-Forwards|P-Asserted-Identity"))
 
 	</section>
 
-	<section>
+	<section id="func_mc_decompress" xreflabel="mc_decompress()">
 	<title>
 		<function moreinfo="none">mc_decompress()</function>
 	</title>

@@ -4,7 +4,7 @@
     
     <title>&adminguide;</title>
 
-    <section>
+    <section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>Useful extensions for the server configuration.</para>
 	<para>
@@ -45,7 +45,7 @@
 	<quote>check_config_hash</quote> and <quote>get_config_hash</quote>.
 	</para>
 	</section>
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<para>
 	    The module depends on the following modules (in the other words the
@@ -57,9 +57,9 @@
 	    </itemizedlist>
 	</para>
     </section>
-    <section>
+    <section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
-	<section>
+	<section id="param_initial_probability" xreflabel="initial_probability">
 		<title><varname>initial_probability</varname> (string)</title>
 		<para>
 		The initial value of the probability.
@@ -185,15 +185,15 @@ modparam("cfgutils", "varset", "gw=s:sip:11.11.11.11;transport=tcp")
 		<example>
 		<title>Setting lock_pool_size module parameter</title>
 		<programlisting format="linespecific">
-modparam("cfgutils", "lock_pool_size", "64")
+modparam("cfgutils", "lock_pool_size", 64)
 </programlisting>
 		</example>
 	</section>
 </section>
 
-    <section>
+    <section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
-	<section>
+	<section id="func_rand_event" xreflabel="rand_event()">
 		<title><function moreinfo="none">rand_event([probability])</function></title>
 		<para>
 			Return true or false, depending on a random value and a
@@ -215,8 +215,8 @@ if (rand_event()) {
 		</example>
 	</section>
 	
-	<section>
-	    <title><function moreinfo="none">rand_set_prob(probabiltiy)</function></title>
+	<section id="func_rand_set_prob" xreflabel="rand_set_prob()">
+	    <title><function moreinfo="none">rand_set_prob(probability)</function></title>
 	    <para>
 		Set the <quote>probability</quote> of the decision.
 	    </para>
@@ -233,7 +233,7 @@ rand_set_prob("4");
 	    </example>
 	</section>
 
-	<section>
+	<section id="func_rand_reset_prob" xreflabel="rand_reset_prob()">
 	    <title><function moreinfo="none">rand_reset_prob()</function></title>
 	    <para>
 		Reset the probability back to the inital value.
@@ -248,7 +248,7 @@ rand_reset_prob();
 	    </example>
 	</section>
 
-	<section>
+	<section id="func_rand_get_prob" xreflabel="rand_get_prob()">
 	    <title><function moreinfo="none">rand_get_prob()</function></title>
 	    <para>
 		Return the current probability setting, e.g. for logging purposes.
@@ -262,7 +262,7 @@ rand_get_prob();
 </programlisting>
 	    </example>
 	</section>
-	<section id="sleep_sync">
+	<section id="func_sleep" xreflabel="sleep()">
 		<title>
 			<function moreinfo="none">sleep(time)</function>
 		</title>
@@ -295,7 +295,7 @@ sleep("$avp(secs)");
 		</example>
 	</section>
 	
-	<section id="usleep_sync">
+	<section id="func_usleep" xreflabel="usleep()">
 		<title>
 			<function moreinfo="none">usleep(time)</function>
 		</title>
@@ -325,7 +325,7 @@ usleep("500000"); # sleep half of sec
 		</example>
 	</section>
 	
-	<section>
+	<section id="func_abort" xreflabel="abort()">
 		<title>
 			<function moreinfo="none">abort()</function>
 		</title>
@@ -347,7 +347,7 @@ abort();
 		</example>
 	</section>
 	
-	<section>
+	<section id="func_pkg_status" xreflabel="pkg_status()">
 		<title>
 			<function moreinfo="none">pkg_status()</function>
 		</title>
@@ -371,7 +371,7 @@ pkg_status();
 		</example>
 	</section>
 	
-	<section>
+	<section id="func_shm_status" xreflabel="shm_status()">
 		<title>
 			<function moreinfo="none">shm_status()</function>
 		</title>
@@ -394,7 +394,7 @@ shm_status();
 			</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_set_count" xreflabel="set_count()">
 		<title>
 			<function moreinfo="none">set_count(pvar name, result pvar name)</function>
 		</title>
@@ -419,7 +419,7 @@ set_count("$avp(10)", "$avp(result)");
 			</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_set_select_weight" xreflabel="set_select_weight()">
 		<title>
 			<function moreinfo="none">set_select_weight(pseudovarible_name)</function>
 		</title>
@@ -443,7 +443,7 @@ $avp(21) = set_select_weight("$avp(10)");
 			</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_ts_usec_delta" xreflabel="ts_usec_delta()">
 		<title>
 			<function moreinfo="none">ts_usec_delta(t1_sec, t1_usec, t2_sec, t2_usec, delta)</function>
 		</title>
@@ -465,7 +465,7 @@ ts_usec_delta("$avp(10)", "$avp(20)", "10", "300", "$avp(result)");
 			</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_check_time_rec" xreflabel="check_time_rec()">
 		<title>
 			<function moreinfo="none">check_time_rec(time_string)</function>
 		</title>
@@ -525,7 +525,7 @@ if (check_time_rec("20121101T000000||p30d")) {
 			</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_get_static_lock" xreflabel="get_static_lock()">
 		<title>
 		<function moreinfo="none">get_static_lock(string)</function>
 		</title>
@@ -574,7 +574,7 @@ release_static_lock("Zone_1");
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_release_static_lock" xreflabel="release_static_lock()">
 		<title>
 		<function moreinfo="none">release_static_lock(string)</function>
 		</title>
@@ -614,7 +614,7 @@ release_static_lock("Zone_1");
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_get_dynamic_lock" xreflabel="get_dynamic_lock()">
 		<title>
 		<function moreinfo="none">get_dynamic_lock(string)</function>
 		</title>
@@ -671,7 +671,7 @@ if (!release_dynamic_lock("$ci") {
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_release_dynamic_lock" xreflabel="release_dynamic_lock()">
 		<title>
 		<function moreinfo="none">release_dynamic_lock(string)</function>
 		</title>
@@ -716,7 +716,7 @@ if (!release_dynamic_lock("$ci") {
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_strings_share_lock" xreflabel="strings_share_lock()">
 		<title>
 		<function moreinfo="none">strings_share_lock(string1, string2)</function>
 		</title>
@@ -789,13 +789,13 @@ if (!release_dynamic_lock("$avp(1)") {
 
 	<section>
 	<title>Exported Asyncronous Functions</title>
-	<section>
+	<section id="afunc_sleep" xreflabel="sleep()">
 		<title>
 		<function moreinfo="none">sleep(seconds)</function>
 		</title>
 		<para>
 		Waits a number of seconds. This function does exactly the same as
-		<xref linkend="sleep_sync"/>,
+		<xref linkend="func_sleep"/>,
 		but in an asynchronous way. The script execution is suspended until
 		the waiting is done; then OpenSIPS resumes the script execution via 
 		the resume route.
@@ -820,13 +820,13 @@ route[after_sleep] {
 		</example>
 	</section>
 
-	<section>
+	<section id="afunc_usleep" xreflabel="usleep()">
 		<title>
 		<function moreinfo="none">usleep(seconds)</function>
 		</title>
 		<para>
 		Waits a number of micro-seconds. This function does exactly the same as
-		<xref linkend="usleep_sync"/>,
+		<xref linkend="func_usleep"/>,
 		but in an asynchronous way. The script execution is suspended until
 		the waiting is done; then OpenSIPS resumes the script execution via 
 		the resume route.
@@ -853,20 +853,20 @@ route[after_usleep] {
 
 	</section>
 
-
-
-
-	<section>
-		<title><acronym>MI</acronym> Commands</title>
-		<section>
+<section id="exported_mi_functions" xreflabel="Exported MI Functions">
+		<title>Exported MI Functions</title>
+		<section id="mi_rand_set_prop" xreflabel="rand_set_prop">
 			<title><function moreinfo="none">rand_set_prop</function></title>
 			<para>
 				Set the probability value to the given parameter.
-				The parameter should be a percent value.
 			</para>
-			<para>
-				The parameter value must be a number from 0 to 99.
-			</para>
+			<para>Parameters:</para>
+			<itemizedlist>
+				<listitem><para>
+					<emphasis>prob_proc</emphasis> - the parameter should be
+					a percent value (number from 0 to 99).
+				</para></listitem>
+			</itemizedlist>
 			<example>
 				<title><function moreinfo="none">rand_set_prob</function> usage</title>
 				<programlisting format="linespecific">
@@ -877,7 +877,7 @@ $ opensipsctl fifo rand_set_prob 10
 			</example>
 			
 		</section>
-		<section>
+		<section id="mi_rand_reset_prob" xreflabel="rand_reset_prob">
 			<title><function moreinfo="none">rand_reset_prob</function></title>
 			<para>
 				Reset the probability value to the inital start value.
@@ -895,7 +895,7 @@ $ opensipsctl fifo rand_reset_prob
 </programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="mi_rand_get_prob" xreflabel="rand_get_prob">
 			<title><function moreinfo="none">rand_get_prob</function></title>
 			<para>
 				Return the actual probability setting.
@@ -913,7 +913,7 @@ The actual probability is 50 percent.
 </programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="mi_check_config_hash" xreflabel="check_config_hash">
 			<title><function moreinfo="none">check_config_hash</function></title>
 			<para>
 				Check if the actual config file hash is identical to the stored one.
@@ -933,7 +933,7 @@ The actual config file hash is identical to the stored one.
 </programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="mi_get_config_hash" xreflabel="get_config_hash">
 			<title><function moreinfo="none">get_config_hash</function></title>
 			<para>
 				Return the stored config file hash.
@@ -952,64 +952,46 @@ $ opensipsctl fifo get_config_hash
 </programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="mi_shv_set" xreflabel="shv_set">
 			<title><function moreinfo="none">shv_set</function></title>
 			<para>
 				Set the value of a shared variable ($shv(name)).
 			</para>
 		<para>Parameters:</para>
 		<itemizedlist>
-			<listitem><para>_name_: shared variable name</para></listitem>
+			<listitem><para><emphasis>name</emphasis> : shared variable name</para></listitem>
 			
-			<listitem><para>_type_: type of the value</para>
+			<listitem><para><emphasis>type</emphasis> : type of the value</para>
 			      <itemizedlist>
 	                 <listitem><para> <quote>int</quote>: integer value </para></listitem> 
 			         <listitem><para> <quote>str</quote>: string value </para></listitem>	
 				  </itemizedlist>
 			</listitem>	  
 
-			<listitem><para>_value_: value to be set</para></listitem>
+			<listitem><para><emphasis>value</emphasis> : value to be set</para></listitem>
 		</itemizedlist>
-		<para>
-		MI FIFO Command Format:
-		</para>
-        <programlisting  format="linespecific">
-		:shv_set:_reply_fifo_file_
-		_name_
-		_type_
-		_value_
-		_empty_line_
-		</programlisting>
-			<example>
-			<title><function moreinfo="none">shv_set</function> usage</title>
-			<programlisting format="linespecific">
+		<example>
+		<title><function moreinfo="none">shv_set</function> usage</title>
+		<programlisting format="linespecific">
 ...
 $ opensipsctl fifo shv_set debug int 0
 ...
 </programlisting>
 			</example>
 		</section>
-		<section>
+		<section id="mi_shv_get" xreflabel="shv_get">
 			<title><function moreinfo="none">shv_get</function></title>
 			<para>
 				Get the value of a shared variable ($shv(name)).
 			</para>
 		<para>Parameters:</para>
 		<itemizedlist>
-			<listitem><para>_name_: shared variable name. If this parameter
+			<listitem><para><emphasis>name</emphasis> : shared variable name. If this parameter
 			is missing, all shared variables are returned.</para></listitem>
 		</itemizedlist>
-		<para>
-		MI FIFO Command Format:
-		</para>
-        <programlisting  format="linespecific">
-		:shv_get:_reply_fifo_file_
-		_name_
-		_empty_line_
-		</programlisting>
-			<example>
-			<title><function moreinfo="none">shv_get</function> usage</title>
-			<programlisting format="linespecific">
+		<example>
+		<title><function moreinfo="none">shv_get</function> usage</title>
+		<programlisting format="linespecific">
 ...
 $ opensipsctl fifo shv_get debug
 $ opensipsctl fifo shv_get
@@ -1019,9 +1001,9 @@ $ opensipsctl fifo shv_get
 		</section>
 </section>
 	
-<section>
-	<title>Exported pseudo-variables</title>
-		<section>
+<section id="exported_pseudo_variables">
+	<title>Exported Pseudo-Variables</title>
+		<section id="pv_env" xreflabel="$env">
 			<title><varname>$env(name)</varname></title>
 			<para>
 				This PV provides access to the environment variable 'name'.
@@ -1035,7 +1017,7 @@ xlog("PATH environment variable is $env(PATH)\n");
 				 </programlisting>
 			</example>
 	</section>
-	<section>
+	<section id="pv_RANDOM" xreflabel="$RANDOM">
 			<title><varname>$RANDOM</varname></title>
 			<para>
 				Returns a random value from the [0 - 2^31) range.
@@ -1056,7 +1038,7 @@ exit;
 				 </programlisting>
 			</example>
 	</section>
-	<section>
+	<section id="pv_ctime" xreflabel="$ctime">
 			<title><varname>$ctime(name)</varname></title>
 			<para>
 			The PV provides access to broken-down time attributes.
@@ -1104,7 +1086,7 @@ if ($ctime(year) == 2008) {
 				 </programlisting>
 			</example>
 	</section>
-	<section>
+	<section id="pv_shv" xreflabel="$shv">
 			<title><varname>$shv(name)</varname></title>
 			<para>
 				It is a class of pseudo-variables stored in shared memory. The

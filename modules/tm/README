@@ -1,28 +1,4 @@
 tm Module
-
-Bogdan-Andrei Iancu
-
-Jiri Kuthan
-
-   FhG FOKUS
-
-Edited by
-
-Jiri Kuthan
-
-Edited by
-
-Bogdan-Andrei Iancu
-
-Edited by
-
-Ovidiu Sas
-
-   Copyright © 2003 FhG FOKUS
-
-   Copyright © 2005-2008 Voice Sistem SRL
-   Revision History
-   Revision $Revision: 8740 $ $Date$
      __________________________________________________________
 
    Table of Contents
@@ -34,7 +10,8 @@ Ovidiu Sas
               1.1.1. Per-Branch flags
               1.1.2. Timeout-Based Failover
               1.1.3. DNS Failover
-              1.1.4. Usage Scope
+              1.1.4. Anycast Scenario
+              1.1.5. Usage Scope
 
         1.2. Dependencies
 
@@ -62,6 +39,9 @@ Ovidiu Sas
               1.3.17. minor_branch_flag (string/integer)
               1.3.18. timer_partitions (integer)
               1.3.19. auto_100trying (integer)
+              1.3.20. tm_replication_cluster (integer)
+              1.3.21. cluster_param (string)
+              1.3.22. cluster_auto_cancel (boolean)
 
         1.4. Exported Functions
 
@@ -91,8 +71,9 @@ Ovidiu Sas
                       t_write_unix(info,sock)
 
               1.4.21. t_flush_flags()
+              1.4.22. t_anycast_replicate()
 
-        1.5. Exported variables
+        1.5. Exported Pseudo-Variables
 
               1.5.1. $T_branch_idx
               1.5.2. $T_reply_code
@@ -109,7 +90,7 @@ Ovidiu Sas
               1.6.3. t_hash
               1.6.4. t_reply
 
-        1.7. Exported statistics
+        1.7. Exported Statistics
 
               1.7.1. received_replies
               1.7.2. relayed_replies
@@ -130,6 +111,21 @@ Ovidiu Sas
               2.1.1. load_tm(*import_structure)
 
    3. Frequently Asked Questions
+   4. Contributors
+
+        4.1. By Commit Statistics
+        4.2. By Commit Activity
+
+   5. Documentation
+
+        5.1. Contributors
+
+   List of Tables
+
+   4.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   4.2. Most recently active contributors^(1) to this module
 
    List of Examples
 
@@ -152,27 +148,31 @@ Ovidiu Sas
    1.17. Set minor_branch_flag parameter
    1.18. Set timer_partitions parameter
    1.19. Set auto_100trying parameter
-   1.20. t_relay usage
-   1.21. t_relay usage
-   1.22. t_reply usage
-   1.23. t_reply_with_body usage
-   1.24. t_newtran usage
-   1.25. t_check_trans usage
-   1.26. t_check_status usage
-   1.27. t_local_replied usage
-   1.28. t_was_cancelled usage
-   1.29. t_cancel_branch usage
-   1.30. t_new_request usage
-   1.31. t_on_failure usage
-   1.32. t_on_reply usage
-   1.33. t_on_branch usage
-   1.34. t_inject_branches usage
-   1.35. t_wait_for_new_branches usage
-   1.36. t_add_hdrs usage
-   1.37. t_add_cancel_reason usage
-   1.38. t_replicate usage
-   1.39. t_write_req/unix usage
-   1.40. t_flush_flags usage
+   1.20. Set tm_replication_cluster parameter
+   1.21. Set the cluster_param parameter
+   1.22. Set the cluster_auto_cancel parameter
+   1.23. t_relay usage
+   1.24. t_relay usage
+   1.25. t_reply usage
+   1.26. t_reply_with_body usage
+   1.27. t_newtran usage
+   1.28. t_check_trans usage
+   1.29. t_check_status usage
+   1.30. t_local_replied usage
+   1.31. t_was_cancelled usage
+   1.32. t_cancel_branch usage
+   1.33. t_new_request usage
+   1.34. t_on_failure usage
+   1.35. t_on_reply usage
+   1.36. t_on_branch usage
+   1.37. t_inject_branches usage
+   1.38. t_wait_for_new_branches usage
+   1.39. t_add_hdrs usage
+   1.40. t_add_cancel_reason usage
+   1.41. t_replicate usage
+   1.42. t_write_req/unix usage
+   1.43. t_flush_flags usage
+   1.44. t_anycast_replicate usage
 
 Chapter 1. Admin Guide
 
@@ -255,8 +255,8 @@ Chapter 1. Admin Guide
    executing replies from the other branch).
 
    For how to define branch flags and use via script, see
-   Section 1.4.14, “ t_on_branch(branch_route) ” and the
-   setbflag(), resetbflag() and isbflagset() script functions.
+   t_on_branch() and the setbflag(), resetbflag() and isbflagset()
+   script functions.
 
    Also, modules may set branch flags before transaction creation
    (for the moment this feature is not available in script). The
@@ -318,7 +318,49 @@ Chapter 1. Admin Guide
    disable_dns_failover) or when the relay flag (per transaction)
    is set (see the t_relay() function).
 
-1.1.4. Usage Scope
+1.1.4. Anycast Scenario
+
+   Doing a load balancing scenario using Anycast IPs, one might
+   run into an issue where a transaction request comes on one
+   instance, and the reply (or replies) comes on different ones.
+   This would normaly break the transaction state, because the
+   local transaction will start re-transmissios and would
+   eventually timeout. Moreover, from UA's perspective, the reply
+   whould have been sent, but since it reaches a proxy that is not
+   aware of that transaction, it will not be forwarded (nor ACKed
+   in case of INVITES). And from this point things can escalade
+   quickly.
+
+   To sort out these problems, the module uses a distributed
+   mechanism to figure out where the transaction for a specific
+   reply was created. When an instance receives a reply that does
+   not have an associated transaction, it replicates it to be
+   handled by the instance that “owns” it. This is achieved using
+   the clusterer module support.
+
+   Setting up an anycast scenario is very simple: all the
+   instances that are part of an anycast secnario must be set up
+   in a cluster (more info at the tm_replication_cluster param).
+   When a transaction is created, a special identifier is appended
+   to the branch parameter, namely the instance that created the
+   transaction. When a reply comes in, the transaction module
+   checks who “owns” the transaction. If the identifier is the
+   instance's own id, then the reply is processed locally.
+   Otherwise it is replicated to the node indicated by the id.
+   Replication is done in a very efficient manner, using the
+   proto_bin transport.
+
+   Special handling is applied to CANCEL and ACK methods. Due to
+   the fact that these methods do not contain the special
+   identifier in the branch parameter (since they are generated by
+   the UAC and not by us), there is no way to determine who “owns”
+   the transaction. Therefore, if we do not find a local
+   transaction for these requests, we broadcast them to all the
+   other instances using the t_anycast_replicate() function.
+   Again, this is done in a very efficient manner using the
+   proto_bin transport.
+
+1.1.5. Usage Scope
 
    Transaction functions and variables are only designed to be
    called on SIP request messages where a transaction can be
@@ -336,7 +378,8 @@ Chapter 1. Admin Guide
 1.2.1. OpenSIPS Modules
 
    The following modules must be loaded before this module:
-     * No dependencies on other OpenSIPS modules.
+     * clusterer module, if the anycast scenario is enabled (see
+       tm_replication_cluster param for more information).
 
 1.2.2. External Libraries or Applications
 
@@ -641,6 +684,56 @@ modparam("tm", "timer_partitions", 2)
 modparam("tm", "auto_100trying", 0)
 ...
 
+1.3.20. tm_replication_cluster (integer)
+
+   This parameter should be used in an anycast setup, and
+   specifies the cluster id of all the nodes that use an anycast
+   IP.
+
+   Check out the tm_anycast section for more details.
+
+   Anycast replication is disabled by default.
+
+   Example 1.20. Set tm_replication_cluster parameter
+...
+# replicate anycast messages in cluster 1
+modparam("tm", "tm_replication_cluster", 1)
+...
+
+1.3.21. cluster_param (string)
+
+   This parameter should be used in an anycast setup, and
+   specifies the name of the parameter used in the VIA branch
+   param to specifiy the instance id that created the transaction.
+
+   Check out the tm_anycast section for more details.
+
+   Default value is cid.
+
+   Example 1.21. Set the cluster_param parameter
+...
+modparam("tm", "cluster_param", "tid")
+...
+
+1.3.22. cluster_auto_cancel (boolean)
+
+   This parameter should be used in an anycast setup, and
+   specifies whether a CANCEL message received on a listener that
+   is marked as anycast should be automatically handled, or should
+   get in the OpenSIPS script. If this parameter is enabled
+   (default), CANCEL messages received on an anycast listener will
+   never enter the script, thus making the script cleaner.
+
+   Check out the tm_anycast section for more details.
+
+   Default value is yes (enabled).
+
+   Example 1.22. Set the cluster_auto_cancel parameter
+...
+# disable auto-cancel handling
+modparam("tm", "cluster_auto_cancel", no)
+...
+
 1.4. Exported Functions
 
 1.4.1.  t_relay([flags])
@@ -659,20 +752,31 @@ modparam("tm", "auto_100trying", 0)
    controlling the internal behaviour. The flags may be given in
    decimal or hexa format; supported flags are:
      * 0x01 - deprecated, not used any more
-     * 0x02 - do not internally send a negative reply in case of
-       forward failure (due internal error, bad RURI, bad message,
-       etc). When a forward failure occurs, no SIP request is
-       relayed and therefore no negative reply or timeout will
-       show up on the failure_route (if one is set). It applies
-       only when the transaction is created. By default one
-       negative reply is sent. Useful if you want to implement a
-       serial forking in case of failure.
+     * 0x02 - do not internally generate and send a "477 Send
+       failed (477/TM)" SIP reply in case of a global forwarding
+       failure (i.e. forwarding for each branch has failed due to
+       internal errors, bad R-URI, bad message, lack of network
+       reachability, etc.).
+       This flag only applies if the transaction was not
+       previously created by t_newtran(). When a global forwarding
+       failure occurs, no SIP request is relayed and therefore no
+       negative SIP reply or timeout will show up on the
+       failure_route, if one is set.
+       Useful if you want to implement a failover logic for when
+       none of the currently created branches can be forwarded to.
      * 0x04 - disable the DNS failover for the transaction. Only
-       first IP will be used. It disable the failover both at
-       transaport and transaction level.
+       first IP will be used. It disables the failover both at
+       transport and transaction level.
      * 0x08 - If the request is a CANCEL, trust and pass further
        the Reason header from the received CANCEL - shortly, will
        propagate the Reason header.
+     * 0x10 - Allows OpenSIPS to inspect and follow the
+       Content-Disposition "no-cancel" indication (if present). As
+       per RFC3841, section 9.1, the TM module may be instructed
+       not to cancel all ongoing branches when a 2xx reply is
+       received. It will keep the pending branches ongoing until
+       (1) all branches will receive a final reply or (2) the
+       transactionhits the timeout.
 
    In case of error, the function returns the following codes:
      * -1 - generic internal error
@@ -685,7 +789,7 @@ modparam("tm", "auto_100trying", 0)
 
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE.
 
-   Example 1.20. t_relay usage
+   Example 1.23. t_relay usage
 ...
 if (!t_relay()) {
     sl_reply_error();
@@ -707,7 +811,7 @@ if (!t_relay()) {
 
    This functions can be used from REQUEST_ROUTE, FAILURE_ROUTE.
 
-   Example 1.21. t_relay usage
+   Example 1.24. t_relay usage
 ...
 t_relay("tcp:192.168.1.10:5060");
 t_relay("mydomain.com:5070","0x1");
@@ -729,7 +833,7 @@ t_relay("udp:mydomain.com");
 
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE.
 
-   Example 1.22. t_reply usage
+   Example 1.25. t_reply usage
 ...
 t_reply("404", "Use $rU not found");
 ...
@@ -750,7 +854,7 @@ t_reply("404", "Use $rU not found");
 
    This function can be used from REQUEST_ROUTE, FAILURE_ROUTE.
 
-   Example 1.23. t_reply_with_body usage
+   Example 1.26. t_reply_with_body usage
 ...
         if(is_method("INVITE"))
         {
@@ -764,16 +868,19 @@ t_reply("404", "Use $rU not found");
 1.4.5.  t_newtran()
 
    Creates the SIP transaction for the currently processed SIP
-   requests. Basically you switch to a stateful processing from
-   this point furhter, with automatic detection of retransmission
-   and auto sending of 100 Trying reply on INVITEs.
+   request, thus switching to stateful processing. For INVITE
+   requests, a 100 Trying reply will be immediately sent, unless
+   auto_100trying is disabled. Once a SIP transaction is created,
+   calling t_newtran() for retransmitted requests will end the
+   OpenSIPS script execution, with the lastly sent reply being
+   retransmitted upstream.
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.24. t_newtran usage
+   Example 1.27. t_newtran usage
 ...
 t_newtran();  # 100 Trying is fired here
-xlog("doing my complicated routing logic");
+xlog("doing my complicated routing logic\n");
 ....
 t_relay(); # send the call further
 ...
@@ -805,7 +912,7 @@ t_relay(); # send the call further
 
    This function can be used from REQUEST_ROUTE and BRANCH_ROUTE.
 
-   Example 1.25. t_check_trans usage
+   Example 1.28. t_check_trans usage
 ...
 if ( is_method("CANCEL") ) {
         if ( t_check_trans() )
@@ -826,7 +933,7 @@ if ( is_method("CANCEL") ) {
    This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE,
    FAILURE_ROUTE and BRANCH_ROUTE .
 
-   Example 1.26. t_check_status usage
+   Example 1.29. t_check_status usage
 ...
 if (t_check_status("(487)|(408)")) {
     log("487 or 408 negative reply\n");
@@ -843,7 +950,7 @@ if (t_check_status("(487)|(408)")) {
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE,
    FAILURE_ROUTE and ONREPLY_ROUTE.
 
-   Example 1.27. t_local_replied usage
+   Example 1.30. t_local_replied usage
 ...
 if (t_local_replied("all")) {
         log ("no reply received\n");
@@ -857,7 +964,7 @@ if (t_local_replied("all")) {
 
    This function can be used from ONREPLY_ROUTE, FAILURE_ROUTE.
 
-   Example 1.28. t_was_cancelled usage
+   Example 1.31. t_was_cancelled usage
 ...
 if (t_was_cancelled()) {
     log("transaction was cancelled by UAC\n");
@@ -879,7 +986,7 @@ if (t_was_cancelled()) {
 
    This function can be used from ONREPLY_ROUTE.
 
-   Example 1.29. t_cancel_branch usage
+   Example 1.32. t_cancel_branch usage
 onreply_route[3] {
 ...
         if (t_check_status("183")) {
@@ -908,7 +1015,7 @@ onreply_route[3] {
        transaction as an AVP with name "uac_ctx" (it may be
        visible in local route)
 
-   Example 1.30. t_new_request usage
+   Example 1.33. t_new_request usage
 ...
         # send a MESSAGE request
         t_new_request("MESSAGE","sip:alice@192.168.2.2","BOB sip:userB@m
@@ -943,7 +1050,7 @@ ydomain.net","ALICE sip:userA@mydomain.net","text/plain Hello Alice!"))
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE,
    ONREPLY_ROUTE and FAILURE_ROUTE.
 
-   Example 1.31. t_on_failure usage
+   Example 1.34. t_on_failure usage
 ...
 route {
         t_on_failure("1");
@@ -992,7 +1099,7 @@ failure_route[1] {
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE,
    ONREPLY_ROUTE and FAILURE_ROUTE.
 
-   Example 1.32. t_on_reply usage
+   Example 1.35. t_on_reply usage
 ...
 route {
         seturi("sip:bob@opensips.org");  # first branch
@@ -1049,7 +1156,7 @@ onreply_route[global] {
    This function can be used from REQUEST_ROUTE, BRANCH_ROUTE,
    ONREPLY_ROUTE and FAILURE_ROUTE.
 
-   Example 1.33. t_on_branch usage
+   Example 1.36. t_on_branch usage
 ...
 route {
         t_on_branch("1");
@@ -1076,12 +1183,12 @@ branch_route[1] {
    branches. Also it is possible for the transaction not to have
    any ongoing branches at the moment of the injection (still, the
    transaction must wait for new branches, even if all existing
-   ones are completed - see the t_wait_for_new_branches function
+   ones are completed - see the t_wait_for_new_branches() function
    for this).
 
    The main usage scenario for this function (and also what makes
-   it different from t_relay is the ability to add new branches to
-   an ongoing transaction from script routes not related to the
+   it different from t_relay() is the ability to add new branches
+   to an ongoing transaction from script routes not related to the
    transaction ( like timer route, event route, notification
    route, and other). In such routes, other functions/module used
    before the injection will point to the transaction to be
@@ -1101,7 +1208,7 @@ branch_route[1] {
           + cancel - cancel all the ongoing existing branches from
             the transaction before injecting the new branches.
 
-   Example 1.34. t_inject_branches usage
+   Example 1.37. t_inject_branches usage
 ...
 route[event_notification] {
         t_inject_branches("event");
@@ -1124,9 +1231,9 @@ route[event_notification] {
    relaying the transaction, the transaction will not terminate
    upon the completion of the branches and not send the 404 to the
    caller - it will wait for new branches to be injected (see
-   t_inject_branches function) until the fr_inv timer hits.
+   t_inject_branches() function) until the fr_inv timer hits.
 
-   Example 1.35. t_wait_for_new_branches usage
+   Example 1.38. t_wait_for_new_branches usage
 ...
 t_newtran();
 t_wait_for_new_branches();
@@ -1139,7 +1246,7 @@ t_relay();
    headers will be appended to all requests related to the
    transaction (outgoing branches, local ACKS, CANCELs).
 
-   Example 1.36. t_add_hdrs usage
+   Example 1.39. t_add_hdrs usage
 ...
 t_add_hdrs("X-origin: 1.1.1.1\r\n");
 ...
@@ -1154,7 +1261,7 @@ t_add_hdrs("X-origin: 1.1.1.1\r\n");
    before relaying the CANCEL request and its input must be a
    fully formated Reason header with name, body and CRLF.
 
-   Example 1.37. t_add_cancel_reason usage
+   Example 1.40. t_add_cancel_reason usage
 ...
 t_add_cancel_reason('Reason: SIP ;cause=200;text="Call completed elsewhe
 re"\r\n');
@@ -1178,7 +1285,7 @@ t_relay();
 
    This functions can be used from REQUEST_ROUTE.
 
-   Example 1.38. t_replicate usage
+   Example 1.41. t_replicate usage
 ...
 t_replicate("sip:1.2.3.4:5060");
 t_replicate("sip:1.2.3.4:5060;transport=tcp");
@@ -1194,7 +1301,7 @@ t_replicate("sip:1.2.3.4","0x4");
    This functions can be used from REQUEST_ROUTE, FAILURE_ROUTE
    and BRANCH_ROUTE.
 
-   Example 1.39. t_write_req/unix usage
+   Example 1.42. t_write_req/unix usage
 ...
 modparam("tm","tw_append","append1:Email=$avp(email);UA=$ua")
 modparam("tm","tw_append","append2:body=$rb")
@@ -1213,12 +1320,28 @@ t_write_unix("logger/append2","/var/run/logger.sock");
 
    This function can be used from REQUEST_ROUTE and BRANCH_ROUTE .
 
-   Example 1.40. t_flush_flags usage
+   Example 1.43. t_flush_flags usage
 ...
 t_flush_flags();
 ...
 
-1.5. Exported variables
+1.4.22.  t_anycast_replicate()
+
+   This function is used in an anycast setup to replicate a CANCEL
+   or ACK method for whom there are no local transactions found.
+   The function broadcasts the message to all the other nodes in
+   the cluster, but only the “owner” of the transaction will be
+   able to handle it.
+
+   Example 1.44. t_anycast_replicate usage
+...
+if (is_method("ACK|CANCEL") && !t_check_trans()) {
+        t_anycast_replicate();
+        exit;
+}
+...
+
+1.5. Exported Pseudo-Variables
 
    Exported variables are listed in the next sections.
 
@@ -1295,6 +1418,11 @@ t_flush_flags();
        present, requires the “Content-Type” and “Content-length”
        headers)
 
+   MI FIFO Command Format:
+                opensipsctl fifo t_uac_dlg INVITE "sip:123456@127.0.0.1:
+5060 SIP/2.0" . . "\"From: sipp:6024151234@127.0.0.1:5090>\r\nTo: sip:te
+st@127.0.0.1:5060\r\nContact: sip:sipp@127.0.0.1:5090\r\n"\"
+
 1.6.2.  t_uac_cancel
 
    Generates and sends a CANCEL for an existing SIP request.
@@ -1303,12 +1431,19 @@ t_flush_flags();
      * callid - callid of the INVITE request to be cancelled.
      * cseq - cseq of the INVITE request to be cancelled.
 
+   MI FIFO Command Format:
+                opensipsctl fifo t_uac_cancel "1-23454@127.0.0.1" "1 INV
+ITE"
+
 1.6.3.  t_hash
 
    Gets information about the load of TM internal hash table.
 
    Parameters:
      * none
+
+   MI FIFO Command Format:
+                opensipsctl fifo t_hash
 
 1.6.4.  t_reply
 
@@ -1327,7 +1462,11 @@ t_flush_flags();
        present, requires the “Content-Type” and “Content-length”
        headers)
 
-1.7. Exported statistics
+   MI FIFO Command Format:
+                opensipsctl fifo t_reply 403 Forbidden 46961:1279687637
+abcde .
+
+1.7. Exported Statistics
 
    Exported statistics are listed in the next sections. All
    statistics except “inuse_transactions” can be reset.
@@ -1405,3 +1544,100 @@ Chapter 3. Frequently Asked Questions
 
        Please follow the guidelines provided at:
        https://github.com/OpenSIPS/opensips/issues.
+
+Chapter 4. Contributors
+
+4.1. By Commit Statistics
+
+   Table 4.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Bogdan-Andrei Iancu (@bogdan-iancu) 1009 566 20456 15762
+   2. Jiri Kuthan (@jiriatipteldotorg) 545 198 18723 11167
+   3. Jan Janak (@janakj) 160 76 6462 1840
+   4. Andrei Pelinescu-Onciul 147 105 2447 1210
+   5. Razvan Crainea (@razvancrainea) 80 61 1509 345
+   6. Liviu Chircu (@liviuchircu) 72 52 983 630
+   7. Daniel-Constantin Mierla (@miconda) 43 37 322 166
+   8. Anca Vamanu 38 19 778 651
+   9. Vlad Paiu (@vladpaiu) 25 22 169 55
+   10. Henning Westerholt (@henningw) 24 19 122 184
+
+   All remaining contributors: Dan Pascu (@danpascu), Ovidiu Sas
+   (@ovidiusas), Juha Heinanen (@juha-h), Ionut Ionita
+   (@ionutrazvanionita), Maksym Sobolyev (@sobomax), Raphael
+   Coeffic, Vlad Patrascu (@rvlad-patrascu), Nils Ohlmeier, Klaus
+   Darilion, Andreas Granig, Elias Baixas, Marcus Hunger,
+   Christophe Sollet (@csollet), Jeffrey Magder, Ezequiel Lovelle,
+   Saúl Ibarra Corretgé (@saghul), Elena-Ramona Modroiu, John
+   Riordan, Julián Moreno Patiño, Andrei Dragus, Jesus Rodrigues,
+   Konstantin Bokarius, Anonymous, Dusan Klinec, Mark Dalby,
+   Walter Doekes (@wdoekes), Nick Altmann (@nikbyte), Peter
+   Lemenkov (@lemenkov), Edson Gellert Schubert, Ingo Wolfsberger,
+   Daniel Hsueh.
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+4.2. By Commit Activity
+
+   Table 4.2. Most recently active contributors^(1) to this module
+                      Name                   Commit Activity
+   1.  Liviu Chircu (@liviuchircu)         Jan 2013 - Aug 2018
+   2.  Vlad Patrascu (@rvlad-patrascu)     May 2017 - Jul 2018
+   3.  Bogdan-Andrei Iancu (@bogdan-iancu) Nov 2001 - Jun 2018
+   4.  Peter Lemenkov (@lemenkov)          Jun 2018 - Jun 2018
+   5.  Razvan Crainea (@razvancrainea)     Jul 2010 - May 2018
+   6.  Vlad Paiu (@vladpaiu)               Jun 2011 - May 2016
+   7.  Ionut Ionita (@ionutrazvanionita)   Nov 2014 - Apr 2016
+   8.  Julián Moreno Patiño                Feb 2016 - Feb 2016
+   9.  Nick Altmann (@nikbyte)             Jan 2016 - Jan 2016
+   10. Ovidiu Sas (@ovidiusas)             Apr 2008 - Jan 2016
+
+   All remaining contributors: Dusan Klinec, Ezequiel Lovelle,
+   Walter Doekes (@wdoekes), Christophe Sollet (@csollet), Maksym
+   Sobolyev (@sobomax), Saúl Ibarra Corretgé (@saghul), Anonymous,
+   Mark Dalby, Anca Vamanu, Andrei Dragus, John Riordan, Dan Pascu
+   (@danpascu), Henning Westerholt (@henningw), Klaus Darilion,
+   Daniel-Constantin Mierla (@miconda), Konstantin Bokarius, Edson
+   Gellert Schubert, Jesus Rodrigues, Marcus Hunger, Juha Heinanen
+   (@juha-h), Jeffrey Magder, Elias Baixas, Daniel Hsueh, Andreas
+   Granig, Elena-Ramona Modroiu, Ingo Wolfsberger, Andrei
+   Pelinescu-Onciul, Jan Janak (@janakj), Jiri Kuthan
+   (@jiriatipteldotorg), Raphael Coeffic, Nils Ohlmeier.
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 5. Documentation
+
+5.1. Contributors
+
+   Last edited by: Liviu Chircu (@liviuchircu), Vlad Patrascu
+   (@rvlad-patrascu), Peter Lemenkov (@lemenkov), Bogdan-Andrei
+   Iancu (@bogdan-iancu), Razvan Crainea (@razvancrainea), Nick
+   Altmann (@nikbyte), Ovidiu Sas (@ovidiusas), Vlad Paiu
+   (@vladpaiu), Anca Vamanu, Henning Westerholt (@henningw), Klaus
+   Darilion, Daniel-Constantin Mierla (@miconda), Konstantin
+   Bokarius, Edson Gellert Schubert, Dan Pascu (@danpascu), Juha
+   Heinanen (@juha-h), Elena-Ramona Modroiu, Jan Janak (@janakj),
+   Jiri Kuthan (@jiriatipteldotorg).
+
+   Documentation Copyrights:
+
+   Copyright © 2005-2008 Voice Sistem SRL
+
+   Copyright © 2003 FhG FOKUS

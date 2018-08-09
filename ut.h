@@ -43,6 +43,14 @@
 #include "mem/mem.h"
 #include "mem/shm_mem.h"
 
+typedef struct _int_str_t {
+	union {
+		int i;
+		str s;
+	};
+	unsigned char is_str;
+} int_str_t;
+
 struct sip_msg;
 
 /* zero-string wrapper */
@@ -91,10 +99,75 @@ struct sip_msg;
 #define  translate_pointer( _new_buf , _org_buf , _p) \
 	( (_p)?(_new_buf + (_p-_org_buf)):(0) )
 
+#define TIMEVAL_MS_DIFF(_tva, _tvb) \
+	((((_tvb).tv_sec * 1000000UL + (_tvb).tv_usec) - \
+	 ((_tva).tv_sec * 1000000UL + (_tva).tv_usec)) / 1000UL)
+
+/**
+ * _add_last() - Walk the @next_member field of any struct and append last.
+ * @what: Pointer to the struct that is to be appended.
+ * @where: Pointer to the list that is to be appended to.
+ * @next_member: The name of the member used to link to the next ones.
+ *
+ * If the list @where is NULL, @what will be assigned to it.
+ */
+#define _add_last(what, where, next_member) \
+	do { \
+		if (!(where)) { \
+			(where) = (what); \
+		} else { \
+			typeof(where) __wit = (where); \
+			while (__wit->next_member) \
+				__wit = __wit->next_member; \
+			__wit->next_member = (what); \
+		} \
+	} while (0)
+
+/**
+ * add_last() - Walk the "->next" field of any struct and append last.
+ * @what: Pointer to the struct that is to be appended.
+ * @where: Pointer to the list that is to be appended to.
+ *
+ * If the list @where is NULL, @what will be assigned to it.
+ */
+#define add_last(what, where) \
+	_add_last(what, where, next)
+
+/**
+ * pkg_free_all() - pkg_free() each element of the given list.
+ * @things: Pointer to the list that is to be freed in succession.
+ *
+ * The list is walked using "->next".
+ */
+#define pkg_free_all(things) \
+	do { \
+		typeof(things) pos; \
+		while (things) \
+			{ pos = (things); (things) = (things)->next; pkg_free(pos); } \
+	} while (0)
+
+/**
+ * shm_free_all() - shm_free() each element of the given list.
+ * @things: Pointer to the list that is to be freed in succession.
+ *
+ * The list is walked using "->next".
+ */
+#define shm_free_all(things) \
+	do { \
+		typeof(things) pos; \
+		while (things) \
+			{ pos = (things); (things) = (things)->next; shm_free(pos); } \
+	} while (0)
+
 #define via_len(_via) \
 	((_via)->bsize-((_via)->name.s-\
 		((_via)->hdr.s+(_via)->hdr.len)))
 
+#ifdef __GNUC__
+#define ALLOW_UNUSED __attribute__ ((unused))
+#else
+#define ALLOW_UNUSED
+#endif
 
 #define PTR_STRING_SIZE  2+16+1
 #define PTR_STR_SIZE     2+16
@@ -161,9 +234,9 @@ static inline int btostr( char *p,  unsigned char val)
 /* 2^64~= 16*10^18 => 19+1+1 sign + digits + \0 */
 #define INT2STR_MAX_LEN  (1+19+1+1)
 
-/* INTeger-TO-Buffer-STRing : convers an unsigned long to a string
+/* INTeger-TO-Buffer-STRing : converts a 64-bit integer to a string
  * IMPORTANT: the provided buffer must be at least INT2STR_MAX_LEN size !! */
-static inline char* int2bstr(unsigned long l, char *s, int* len)
+static inline char* int2bstr(uint64_t l, char *s, int* len)
 {
 	int i;
 
@@ -182,12 +255,16 @@ static inline char* int2bstr(unsigned long l, char *s, int* len)
 }
 
 
-/* INTeger-TO-STRing : convers an unsigned long to a string
+/* INTeger-TO-STRing : convers a 64-bit integer to a string
  * returns a pointer to a static buffer containing l in asciiz & sets len */
-extern char int2str_buf[INT2STR_MAX_LEN];
-static inline char* int2str(unsigned long l, int* len)
+#define INT2STR_BUF_NO    7
+extern char int2str_buf[INT2STR_BUF_NO][INT2STR_MAX_LEN];
+static inline char* int2str(uint64_t l, int* len)
 {
-	return int2bstr( l, int2str_buf, len);
+	static unsigned int it = 0;
+
+	if ((++it)==INT2STR_BUF_NO) it = 0;
+	return int2bstr( l, int2str_buf[it], len);
 }
 
 
@@ -238,22 +315,21 @@ static inline char* q_memrchr(char* p, int c, unsigned int size)
 }
 
 
-inline static int reverse_hex2int( char *c, int len )
+inline static int reverse_hex2int( char *c, int len, unsigned int *r)
 {
 	char *pc;
-	int r;
 	char mychar;
 
-	r=0;
+	*r=0;
 	for (pc=c+len-1; len>0; pc--, len--) {
-		r <<= 4 ;
+		(*r) <<= 4 ;
 		mychar=*pc;
-		if ( mychar >='0' && mychar <='9') r+=mychar -'0';
-		else if (mychar >='a' && mychar <='f') r+=mychar -'a'+10;
-		else if (mychar  >='A' && mychar <='F') r+=mychar -'A'+10;
+		if ( mychar >='0' && mychar <='9') (*r)+=mychar -'0';
+		else if (mychar >='a' && mychar <='f') (*r)+=mychar -'a'+10;
+		else if (mychar  >='A' && mychar <='F') (*r)+=mychar -'A'+10;
 		else return -1;
 	}
-	return r;
+	return 0;
 }
 
 inline static int int2reverse_hex( char **c, int *size, unsigned int nr )
@@ -281,24 +357,23 @@ inline static int int2reverse_hex( char **c, int *size, unsigned int nr )
 /* if unsafe requested when first non numerical character shall be
  * met the number shall be returned; avoid giving the
  * exact len of the number */
-inline static int64_t reverse_hex2int64( char *c, int len, int unsafe)
+inline static int reverse_hex2int64( char *c, int len, int unsafe, uint64_t *r)
 {
 	char *pc;
-	int64_t r;
 	char mychar;
 
-	r=0;
+	*r=0;
 	for (pc=c+len-1; len>0; pc--, len--) {
-		r <<= 4 ;
+		(*r) <<= 4 ;
 		mychar=*pc;
-		if ( mychar >='0' && mychar <='9') r+=mychar -'0';
-		else if (mychar >='a' && mychar <='f') r+=mychar -'a'+10;
-		else if (mychar  >='A' && mychar <='F') r+=mychar -'A'+10;
+		if ( mychar >='0' && mychar <='9') (*r)+=mychar -'0';
+		else if (mychar >='a' && mychar <='f') (*r)+=mychar -'a'+10;
+		else if (mychar  >='A' && mychar <='F') (*r)+=mychar -'A'+10;
 		else if (unsafe)
-			return r;
+			return 0;
 		else return -1;
 	}
-	return r;
+	return 0;
 }
 
 inline static int64_t int64_2reverse_hex( char **c, int *size, uint64_t nr )
@@ -490,6 +565,28 @@ static inline void strlower(str* _s)
 	}
 }
 
+/*
+ * Convert a str into a short integer
+ */
+static inline int str2short(str* _s, unsigned short *_r)
+{
+	int i;
+
+	if (_s==0 || _s->s == 0 || _s->len == 0 || _r == 0)
+		return -1;
+
+	*_r = 0;
+	for(i = 0; i < _s->len; i++) {
+		if ((_s->s[i] >= '0') && (_s->s[i] <= '9')) {
+			*_r *= 10;
+			*_r += _s->s[i] - '0';
+		} else {
+			return -1;
+		}
+	}
+
+	return 0;
+}
 
 /*
  * Convert a str into integer
@@ -513,6 +610,30 @@ static inline int str2int(str* _s, unsigned int* _r)
 
 	return 0;
 }
+
+/*
+ * Convert a str into a big integer
+ */
+static inline int str2int64(str* _s, uint64_t *_r)
+{
+	int i;
+
+	if (_s==0 || _s->s == 0 || _s->len == 0 || _r == 0)
+		return -1;
+
+	*_r = 0;
+	for(i = 0; i < _s->len; i++) {
+		if ((_s->s[i] >= '0') && (_s->s[i] <= '9')) {
+			*_r *= 10;
+			*_r += _s->s[i] - '0';
+		} else {
+			return -1;
+		}
+	}
+
+	return 0;
+}
+
 
 /*
  * Convert a str into signed integer
@@ -571,6 +692,7 @@ static inline int shm_str_dup(str* dst, const str* src)
 	dst->s = shm_malloc(src->len);
 	if (!dst->s) {
 		LM_ERR("no shared memory left\n");
+		dst->len = 0;
 		return -1;
 	}
 
@@ -579,20 +701,22 @@ static inline int shm_str_dup(str* dst, const str* src)
 	return 0;
 }
 
+
 /*
  * Make a copy of an str structure using shm_malloc
  *	  + an additional '\0' byte, so you can make use of dst->s
  */
 static inline int shm_nt_str_dup(str* dst, const str* src)
 {
-	if (!src || !src->s)
-		return -1;
-
-	memset(dst, 0, sizeof *dst);
+	if (!src->s) {
+		memset(dst, 0, sizeof *dst);
+		return 0;
+	}
 
 	dst->s = shm_malloc(src->len + 1);
 	if (!dst->s) {
 		LM_ERR("no shared memory left\n");
+		dst->len = 0;
 		return -1;
 	}
 
@@ -618,8 +742,12 @@ static inline char *shm_strdup(const char *str)
 	return rval;
 }
 
-/* Extend the given buffer only if needed */
-static inline int shm_str_resize(str *in, int size)
+/*
+ * Ensure the given (str *) points to an SHM buffer of at least "size" bytes
+ *
+ * Return: 0 on success, -1 on failure
+ */
+static inline int shm_str_extend(str *in, int size)
 {
 	char *p;
 
@@ -637,15 +765,49 @@ static inline int shm_str_resize(str *in, int size)
 	return 0;
 }
 
+
+/*
+ * Ensure "dst" matches the content of "src" without leaking memory
+ *
+ * Note: if you just want to dup a string, use "shm_str_dup()" instead
+ */
+static inline int shm_str_sync(str* dst, const str* src)
+{
+	if (ZSTRP(src)) {
+		if (dst->s)
+			shm_free(dst->s);
+		memset(dst, 0, sizeof *dst);
+		return 0;
+	}
+
+	if (shm_str_extend(dst, src->len) != 0) {
+		LM_ERR("oom\n");
+		return -1;
+	}
+
+	memcpy(dst->s, src->s, src->len);
+	dst->len = src->len;
+	return 0;
+}
+
+
+static inline void shm_str_clean(str* dst)
+{
+	if (dst->s)
+		shm_free(dst->s);
+	memset(dst, 0, sizeof *dst);
+}
+
+
 /*
  * Make a copy of a str structure using pkg_malloc
  */
 static inline int pkg_str_dup(str* dst, const str* src)
 {
 	dst->s = pkg_malloc(src->len);
-	if (dst->s==NULL)
-	{
+	if (!dst->s) {
 		LM_ERR("no private memory left\n");
+		dst->len = 0;
 		return -1;
 	}
 
@@ -671,7 +833,7 @@ static inline char *pkg_strdup(const char *str)
 }
 
 /* Extend the given buffer only if needed */
-static inline int pkg_str_resize(str *in, int size)
+static inline int pkg_str_extend(str *in, int size)
 {
 	char *p;
 
@@ -1073,17 +1235,10 @@ int base64decode(unsigned char *out,unsigned char *in,int len);
 void word64encode(unsigned char *out, unsigned char *in, int inlen);
 int word64decode(unsigned char *out, unsigned char *in, int len);
 
-static inline int calc_base64_encode_len(int len)
-{
-	return (len/3 + (len%3?1:0))*4;
-}
+#define calc_base64_encode_len(_l) (((_l)/3 + ((_l)%3?1:0))*4)
+#define calc_max_base64_decode_len(_l) ((_l)*3/4)
+
 #define calc_word64_encode_len calc_base64_encode_len
-
-static inline int calc_max_base64_decode_len(int len)
-{
-	return len*3/4;
-}
-
 #define calc_max_word64_decode_len calc_max_base64_decode_len
 
 

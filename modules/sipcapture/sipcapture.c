@@ -5071,7 +5071,7 @@ static int report_capture(struct sip_msg* msg, str* table, str* cor_id,
 		db_vals[10].val.str_val = capture_node;
 	}
 
-	db_vals[11].type = DB_BLOB;
+	db_vals[11].type = DB_STR;
 
 
 	/* we can have other pyload than sip only for hepv3 */
@@ -5546,7 +5546,7 @@ int raw_capture_rcv_loop(int rsock, int port1, int port2, int ipip) {
 		if((!port1 && !port2)
 		        || (src_port >= port1 && src_port <= port2) || (dst_port >= port1 && dst_port <= port2)
 		        || (!port2 && (src_port == port1 || dst_port == port1)))
-		                          receive_msg(buf+offset, len, &ri, NULL);
+		                          receive_msg(buf+offset, len, &ri, NULL, 0);
 	}
 
 	return 0;

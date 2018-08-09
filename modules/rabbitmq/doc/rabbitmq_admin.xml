@@ -4,7 +4,7 @@
 	
 	<title>&adminguide;</title>
 	
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 		<emphasis>RabbitMQ</emphasis>
@@ -20,7 +20,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -46,9 +46,9 @@
 	
 	</section>
 	
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 		<title>Exported Parameters</title>
-		<section>
+		<section id="param_server_id" xreflabel="server_id">
 		<title><varname>server_id</varname> (string)</title>
 		<para>
 			Specify configuration for a RabbitMQ server. It contains a set
@@ -145,9 +145,9 @@ heartbeat = 5")
 	</section>
 	
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 		<title>Exported Functions</title>
-		<section>
+		<section id="func_rabbitmq_publish" xreflabel="rabbitmq_publish()">
 			<title>
 				<function moreinfo="none">rabbitmq_publish(server_id, routing_key, message 
 					[, [content_type [, headers, headers_vals]]])</function>

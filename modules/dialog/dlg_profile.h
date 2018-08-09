@@ -50,9 +50,13 @@ struct dlg_profile_link {
 	struct dlg_profile_table *profile;
 };
 
+struct prof_rcv_count;
 
-
-struct repl_prof_novalue;
+struct prof_local_count {
+	int n;
+	struct dlg_cell *dlg;
+	struct prof_local_count *next;
+};
 
 enum repl_types {REPL_NONE=0, REPL_CACHEDB=1, REPL_PROTOBIN};
 struct dlg_profile_table {
@@ -60,26 +64,19 @@ struct dlg_profile_table {
 	unsigned int has_value;
 	enum repl_types repl_type;
 
-
 	unsigned int size;
 	gen_lock_set_t * locks;
 
 	/*
 	 * information for profiles with values
 	 */
-
 	map_t * entries;
 
 	/*
 	 * information for profiles without values
 	 */
-
-	int * counts;
-
-	/*
-	 * information used for profile replication without values
-	 */
-	struct repl_prof_novalue *repl;
+	struct prof_local_count **noval_local_counters;
+	struct prof_rcv_count *noval_rcv_counters;
 
 	struct dlg_profile_table *next;
 };
@@ -116,7 +113,9 @@ void destroy_dlg_profiles();
 struct dlg_profile_table* search_dlg_profile(str *name);
 struct dlg_profile_table *get_dlg_profile(str *name);
 
-void destroy_linkers(struct dlg_profile_link *linker, char is_replicated);
+void destroy_linkers(struct dlg_cell *dlg, char is_replicated);
+void destroy_linkers_unsafe(struct dlg_cell *dlg, char is_replicated);
+void remove_dlg_prof_table(struct dlg_cell *dlg, char is_replicated);
 
 int set_dlg_profile(struct dlg_cell *dlg, str *value,
 		struct dlg_profile_table *profile, char is_replicated);
@@ -126,6 +125,8 @@ int unset_dlg_profile(struct dlg_cell *dlg, str *value,
 
 int is_dlg_in_profile(struct dlg_cell *dlg, struct dlg_profile_table *profile,
 		str *value);
+
+int noval_get_local_count(struct dlg_profile_table *profile);
 
 unsigned int get_profile_size(struct dlg_profile_table *profile, str *value);
 
@@ -147,7 +148,6 @@ extern str cdb_noval_prefix;
 extern str cdb_size_prefix;
 extern str cdb_url;
 extern int profile_timeout;
-extern int profile_replicate_cluster;
 
 extern struct dlg_profile_table *profiles;
 

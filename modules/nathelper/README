@@ -1,22 +1,4 @@
 nathelper Module
-
-Maxim Sobolev
-
-   Sippy Software, Inc.
-
-Edited by
-
-Maxim Sobolev
-
-Edited by
-
-Bogdan-Andrei Iancu
-
-   Copyright © 2003-2008 Sippy Software, Inc.
-
-   Copyright © 2005 Voice Sistem SRL
-   Revision History
-   Revision $Revision: 8740 $ $Date$
      __________________________________________________________
 
    Table of Contents
@@ -40,27 +22,46 @@ Bogdan-Andrei Iancu
               1.4.6. force_socket (string)
               1.4.7. sipping_bflag (string/integer)
               1.4.8. remove_on_timeout_bflag (string/integer)
-              1.4.9. sipping_from (string)
-              1.4.10. sipping_method (string)
-              1.4.11. nortpproxy_str (string)
-              1.4.12. natping_tcp (integer)
-              1.4.13. oldip_skip (string)
-              1.4.14. ping_threshold (int)
-              1.4.15. max_pings_lost (int)
+              1.4.9. sipping_latency_flag (string/integer)
+              1.4.10. sipping_ignore_rpl_codes (CSV string)
+              1.4.11. sipping_from (string)
+              1.4.12. sipping_method (string)
+              1.4.13. nortpproxy_str (string)
+              1.4.14. natping_tcp (integer)
+              1.4.15. oldip_skip (string)
+              1.4.16. ping_threshold (int)
+              1.4.17. max_pings_lost (int)
 
         1.5. Exported Functions
 
               1.5.1. fix_nated_contact([uri_params])
-              1.5.2. fix_nated_sdp(flags [, ip_address])
+              1.5.2. fix_nated_sdp(flags [, ip_address [,
+                      sdp_fields]])
+
               1.5.3. add_rcv_param([flag]),
               1.5.4. fix_nated_register()
               1.5.5. nat_uac_test(flags)
 
-        1.6. MI Commands
+        1.6. Exported MI Functions
 
               1.6.1. nh_enable_ping
 
    2. Frequently Asked Questions
+   3. Contributors
+
+        3.1. By Commit Statistics
+        3.2. By Commit Activity
+
+   4. Documentation
+
+        4.1. Contributors
+
+   List of Tables
+
+   3.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   3.2. Most recently active contributors^(1) to this module
 
    List of Examples
 
@@ -72,18 +73,20 @@ Bogdan-Andrei Iancu
    1.6. Set force_socket parameter
    1.7. Set sipping_bflag parameter
    1.8. Set remove_on_timeout_bflag parameter
-   1.9. Set sipping_from parameter
-   1.10. Set sipping_method parameter
-   1.11. Set nortpproxy_str parameter
-   1.12. Set natping_interval parameter
-   1.13. Set natping_interval parameter
-   1.14. Set ping_threshold parameter
-   1.15. Set ping_threshold parameter
-   1.16. fix_nated_contact usage
-   1.17. fix_nated_sdp usage
-   1.18. add_rcv_paramer usage
-   1.19. fix_nated_register usage
-   1.20. nh_enable_ping usage
+   1.9. Set sipping_latency_flag parameter
+   1.10. Set sipping_ignore_rpl_codes parameter
+   1.11. Set sipping_from parameter
+   1.12. Set sipping_method parameter
+   1.13. Set nortpproxy_str parameter
+   1.14. Set natping_interval parameter
+   1.15. Set natping_interval parameter
+   1.16. Set ping_threshold parameter
+   1.17. Set ping_threshold parameter
+   1.18. fix_nated_contact usage
+   1.19. fix_nated_sdp usage
+   1.20. add_rcv_paramer usage
+   1.21. fix_nated_register usage
+   1.22. nh_enable_ping usage
 
 Chapter 1. Admin Guide
 
@@ -254,13 +257,13 @@ modparam("nathelper", "force_socket", "localhost:33333")
 
    Example 1.7. Set sipping_bflag parameter
 ...
-modparam("nathelper", "sipping_bflag", "SIP_PING_FLAG")
+modparam("nathelper", "sipping_bflag", "SIPPING_ENABLE")
 ...
 
 1.4.8. remove_on_timeout_bflag (string/integer)
 
-   What flag to be used in order to activate usrloc contact
-   removal when ping_threshold is exceeded.
+   What branch flag to be used in order to activate usrloc contact
+   removal when the ping_threshold is exceeded.
 
    WARNING: Setting INT flags is deprecated! Use quoted strings
    instead!
@@ -269,10 +272,40 @@ modparam("nathelper", "sipping_bflag", "SIP_PING_FLAG")
 
    Example 1.8. Set remove_on_timeout_bflag parameter
 ...
-modparam("nathelper", "remove_on_timeout_bflag", "RM_ONTO_FLAG")
+modparam("nathelper", "remove_on_timeout_bflag", "SIPPING_RTO")
 ...
 
-1.4.9. sipping_from (string)
+1.4.9. sipping_latency_flag (string/integer)
+
+   The branch flag which will be used in order to enable contact
+   pinging latency computation and reporting via the usrloc
+   E_UL_LATENCY_UPDATE event.
+
+   Default value is "NULL" (disabled).
+
+   Example 1.9. Set sipping_latency_flag parameter
+...
+modparam("nathelper", "sipping_latency_flag", "SIPPING_CALC_LATENCY")
+...
+
+1.4.10. sipping_ignore_rpl_codes (CSV string)
+
+   A comma-separated list of SIP reply status codes to contact
+   pings which are to be discarded. This may be useful for
+   "full-sharing" user location topologies, where the location
+   nodes are not directly facing the UAs, hence the intermediary
+   SIP component may generate replies to offline contact ping
+   attempts (e.g. 408 - Request Timeout) -- such ping replies
+   should be ignored.
+
+   Default value is "NULL" (all reply status codes are accepted).
+
+   Example 1.10. Set sipping_ignore_rpl_codes parameter
+...
+modparam("nathelper", "sipping_ignore_rpl_codes", "408, 480, 404")
+...
+
+1.4.11. sipping_from (string)
 
    The parameter sets the SIP URI to be used in generating the SIP
    requests for NAT ping purposes. To enable the SIP request
@@ -281,24 +314,24 @@ modparam("nathelper", "remove_on_timeout_bflag", "RM_ONTO_FLAG")
 
    Default value is “NULL”.
 
-   Example 1.9. Set sipping_from parameter
+   Example 1.11. Set sipping_from parameter
 ...
 modparam("nathelper", "sipping_from", "sip:pinger@siphub.net")
 ...
 
-1.4.10. sipping_method (string)
+1.4.12. sipping_method (string)
 
    The parameter sets the SIP method to be used in generating the
    SIP requests for NAT ping purposes.
 
    Default value is “OPTIONS”.
 
-   Example 1.10. Set sipping_method parameter
+   Example 1.12. Set sipping_method parameter
 ...
 modparam("nathelper", "sipping_method", "INFO")
 ...
 
-1.4.11. nortpproxy_str (string)
+1.4.13. nortpproxy_str (string)
 
    The parameter sets the SDP attribute used by nathelper to mark
    the packet SDP informations have already been mangled.
@@ -312,24 +345,24 @@ Note
 
    Default value is “a=nortpproxy:yes\r\n”.
 
-   Example 1.11. Set nortpproxy_str parameter
+   Example 1.13. Set nortpproxy_str parameter
 ...
 modparam("nathelper", "nortpproxy_str", "a=sdpmangled:yes\r\n")
 ...
 
-1.4.12. natping_tcp (integer)
+1.4.14. natping_tcp (integer)
 
    If the flag is set, TCP/TLS clients will also be pinged with
    SIP OPTIONS messages.
 
    Default value is 0 (not set).
 
-   Example 1.12. Set natping_interval parameter
+   Example 1.14. Set natping_interval parameter
 ...
 modparam("nathelper", "natping_tcp", 1)
 ...
 
-1.4.13. oldip_skip (string)
+1.4.15. oldip_skip (string)
 
    Parameter which specifies whether old media ip and old origin
    ip shall be put in the sdp body. The parameter has two values :
@@ -338,12 +371,12 @@ modparam("nathelper", "natping_tcp", 1)
 
    Default value is 0 (not set).
 
-   Example 1.13. Set natping_interval parameter
+   Example 1.15. Set natping_interval parameter
 ...
 modparam("nathelper", "oldip_skip", "oc")
 ...
 
-1.4.14. ping_threshold (int)
+1.4.16. ping_threshold (int)
 
    If a contact does not respond in ping_threshold seconds since
    the ping has been sent, the contact shall be removed after
@@ -351,19 +384,19 @@ modparam("nathelper", "oldip_skip", "oc")
 
    Default value is 3 (seconds).
 
-   Example 1.14. Set ping_threshold parameter
+   Example 1.16. Set ping_threshold parameter
 ...
 modparam("nathelper", "ping_threshold", 10)
 ...
 
-1.4.15. max_pings_lost (int)
+1.4.17. max_pings_lost (int)
 
    Number of unresponded pings after which the contact shall be
    removed from the location table.
 
    Default value is 3 (pings).
 
-   Example 1.15. Set ping_threshold parameter
+   Example 1.17. Set ping_threshold parameter
 ...
 modparam("nathelper", "max_pings_lost", 5)
 ...
@@ -383,7 +416,7 @@ modparam("nathelper", "max_pings_lost", 5)
    This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE,
    BRANCH_ROUTE.
 
-   Example 1.16. fix_nated_contact usage
+   Example 1.18. fix_nated_contact usage
 ...
 if (search("User-Agent: Cisco ATA.*") {
     fix_nated_contact(";ata=cisco");
@@ -392,7 +425,7 @@ if (search("User-Agent: Cisco ATA.*") {
 }
 ...
 
-1.5.2.  fix_nated_sdp(flags [, ip_address])
+1.5.2.  fix_nated_sdp(flags [, ip_address [, sdp_fields]])
 
    Alters the SDP information in orer to facilitate NAT traversal.
    What changes to be performed may be controled via the “flags”
@@ -412,18 +445,28 @@ if (search("User-Agent: Cisco ATA.*") {
             source address of the message or the provided IP
             address (the provide IP address take precedence over
             the source address).
+          + 0x10 - force rewrite of null media IP and/or origin IP
+            address. Without this flag, null IPs are left
+            untouched.
      * ip_address - IP to be used for rewriting SDP. If not
        specified, the received signalling IP will be used. The
        parameter allows pseudo-variables usage. NOTE: For the IP
        to be used, you need to use 0x02 or 0x08 flags, otherwise
        it will have no effect.
+     * sdp_fields - SDP field(s) to be appended to SDP. Note: Each
+       SDP field must be preceded by "\r\n".
 
    This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE,
    FAILURE_ROUTE, BRANCH_ROUTE.
 
-   Example 1.17. fix_nated_sdp usage
+   Example 1.19. fix_nated_sdp usage
 ...
-if (search("User-Agent: Cisco ATA.*") {fix_nated_sdp("3");};
+# Add "a=direction:active" SDP line
+# Rewrite media IP (c= line)
+# Add extra "a=x-attr1" SDP line
+# Add extra "a=x-attr2" SDP line
+if (search("User-Agent: Cisco ATA.*")
+    {fix_nated_sdp("3",,"\r\na=x-attr1\r\na=x-attr2");};
 ...
 
 1.5.3.  add_rcv_param([flag]),
@@ -444,7 +487,7 @@ if (search("User-Agent: Cisco ATA.*") {fix_nated_sdp("3");};
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.18. add_rcv_paramer usage
+   Example 1.20. add_rcv_paramer usage
 ...
 add_rcv_param(); # add the parameter to the Contact header
 ....
@@ -460,7 +503,7 @@ add_rcv_param("1"); # add the parameter to the Contact URI
 
    This function can be used from REQUEST_ROUTE.
 
-   Example 1.19. fix_nated_register usage
+   Example 1.21. fix_nated_register usage
 ...
 fix_nated_register();
 ...
@@ -492,18 +535,19 @@ fix_nated_register();
    This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE,
    FAILURE_ROUTE, BRANCH_ROUTE.
 
-1.6. MI Commands
+1.6. Exported MI Functions
 
 1.6.1. nh_enable_ping
 
-   Enables natping if parameter value greater than 0. Disables
-   natping if parameter value is 0. With no parameter, it returns
-   the current natping status.
+   Gets or sets the natpinging status.
 
-   The function may takean optional parameter (for set operations)
-   - a number in decimal format.
+   Parameters:
+     * status (optional) - if not provided the function returns
+       the current natping status. Otherwise, enables natping if
+       parameter value greater than 0 or disables natping if
+       parameter value is 0.
 
-   Example 1.20. nh_enable_ping usage
+   Example 1.22. nh_enable_ping usage
 ...
 $ opensipsctl fifo nh_enable_ping
 Status:: 1
@@ -547,3 +591,99 @@ Chapter 2. Frequently Asked Questions
 
        Please follow the guidelines provided at:
        https://github.com/OpenSIPS/opensips/issues.
+
+Chapter 3. Contributors
+
+3.1. By Commit Statistics
+
+   Table 3.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Maksym Sobolyev (@sobomax) 153 39 3533 4766
+   2. Bogdan-Andrei Iancu (@bogdan-iancu) 139 110 1814 783
+   3. Ionut Ionita (@ionutrazvanionita) 40 15 1598 627
+   4. Liviu Chircu (@liviuchircu) 36 27 386 249
+   5. Razvan Crainea (@razvancrainea) 29 22 143 236
+   6. Daniel-Constantin Mierla (@miconda) 22 17 142 124
+   7. Jan Janak (@janakj) 21 11 780 129
+   8. Anca Vamanu 21 4 1602 185
+   9. Andrei Pelinescu-Onciul 20 17 121 110
+   10. Ovidiu Sas (@ovidiusas) 18 13 110 173
+
+   All remaining contributors: Jiri Kuthan (@jiriatipteldotorg),
+   Ancuta Onofrei, Andrei Dragus, Vlad Paiu (@vladpaiu), Vlad
+   Patrascu (@rvlad-patrascu), Henning Westerholt (@henningw),
+   Christophe Sollet (@csollet), Marcus Hunger, Klaus Darilion,
+   Sergio Gutierrez, Nils Ohlmeier, Emmanuel Buu, Carsten Bock,
+   Shlomi Gutman, Jeremie Le Hen, Bayan Towfiq, Laurent Schweizer,
+   Konstantin Bokarius, John Riordan, Peter Lemenkov (@lemenkov),
+   Walter Doekes (@wdoekes), Elena-Ramona Modroiu, Edson Gellert
+   Schubert.
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+3.2. By Commit Activity
+
+   Table 3.2. Most recently active contributors^(1) to this module
+                      Name                   Commit Activity
+   1.  Liviu Chircu (@liviuchircu)         Jan 2013 - Aug 2018
+   2.  Razvan Crainea (@razvancrainea)     Dec 2010 - Jul 2018
+   3.  Peter Lemenkov (@lemenkov)          Jun 2018 - Jun 2018
+   4.  Vlad Patrascu (@rvlad-patrascu)     May 2017 - May 2018
+   5.  Bogdan-Andrei Iancu (@bogdan-iancu) Nov 2003 - Apr 2018
+   6.  Shlomi Gutman                       Mar 2018 - Mar 2018
+   7.  Ovidiu Sas (@ovidiusas)             Sep 2010 - Feb 2018
+   8.  Ionut Ionita (@ionutrazvanionita)   Nov 2014 - Nov 2016
+   9.  Walter Doekes (@wdoekes)            May 2014 - May 2014
+   10. Christophe Sollet (@csollet)        Dec 2009 - Oct 2013
+
+   All remaining contributors: Vlad Paiu (@vladpaiu), Maksym
+   Sobolyev (@sobomax), Anca Vamanu, John Riordan, Emmanuel Buu,
+   Andrei Dragus, Sergio Gutierrez, Klaus Darilion,
+   Daniel-Constantin Mierla (@miconda), Konstantin Bokarius, Edson
+   Gellert Schubert, Henning Westerholt (@henningw), Ancuta
+   Onofrei, Marcus Hunger, Carsten Bock, Jeremie Le Hen, Laurent
+   Schweizer, Bayan Towfiq, Andrei Pelinescu-Onciul, Elena-Ramona
+   Modroiu, Jiri Kuthan (@jiriatipteldotorg), Jan Janak (@janakj),
+   Nils Ohlmeier.
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 4. Documentation
+
+4.1. Contributors
+
+   Last edited by: Liviu Chircu (@liviuchircu), Peter Lemenkov
+   (@lemenkov), Vlad Patrascu (@rvlad-patrascu), Ovidiu Sas
+   (@ovidiusas), Bogdan-Andrei Iancu (@bogdan-iancu), Ionut Ionita
+   (@ionutrazvanionita), Razvan Crainea (@razvancrainea), Walter
+   Doekes (@wdoekes), Christophe Sollet (@csollet), Vlad Paiu
+   (@vladpaiu), Maksym Sobolyev (@sobomax), Anca Vamanu, Andrei
+   Dragus, Sergio Gutierrez, Klaus Darilion, Daniel-Constantin
+   Mierla (@miconda), Konstantin Bokarius, Edson Gellert Schubert,
+   Carsten Bock, Ancuta Onofrei, Marcus Hunger, Jeremie Le Hen,
+   Bayan Towfiq, Elena-Ramona Modroiu, Jan Janak (@janakj), Jiri
+   Kuthan (@jiriatipteldotorg).
+
+   Documentation Copyrights:
+
+   Copyright © 2018 VoIP Embedded, Inc.
+
+   Copyright © 2003-2008 Sippy Software, Inc.
+
+   Copyright © 2005 Voice Sistem SRL

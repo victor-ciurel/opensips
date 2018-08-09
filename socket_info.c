@@ -58,6 +58,14 @@
 #include "name_alias.h"
 #include "net/trans.h"
 
+#ifdef __OS_linux
+#include <features.h>     /* for GLIBC version testing */
+#if defined(__GLIBC_PREREQ) && __GLIBC_PREREQ(2, 4)
+#include <ifaddrs.h>
+#define HAVE_IFADDRS
+#endif
+#endif
+
 #define MAX_PROC_BUFFER	256
 
 /* list manip. functions (internal use only) */
@@ -112,10 +120,12 @@ struct socket_info* new_sock_info(	char* name,
 	if (si==0) goto error;
 	memset(si, 0, sizeof(struct socket_info));
 	si->socket=-1;
-	si->name.len=strlen(name);
-	si->name.s=(char*)pkg_malloc(si->name.len+1); /* include \0 */
-	if (si->name.s==0) goto error;
-	memcpy(si->name.s, name, si->name.len+1);
+	if (name) {
+		si->name.len=strlen(name);
+		si->name.s=(char*)pkg_malloc(si->name.len+1); /* include \0 */
+		if (si->name.s==0) goto error;
+		memcpy(si->name.s, name, si->name.len+1);
+	}
 	/* set port & proto */
 	si->port_no=port;
 	si->proto=proto;
@@ -346,7 +356,6 @@ int add_listen_iface(char* name, unsigned short port, unsigned short proto,
 	unsigned short c_proto;
 
 	c_proto=(proto)?proto:PROTO_UDP;
-	LM_INFO("XXX - c_proto = %d\n",c_proto);
 	do{
 		list=get_sock_info_list(c_proto);
 		if (list==0){
@@ -373,10 +382,51 @@ error:
  * WARNING: it only works with ipv6 addresses on FreeBSD
  * return: -1 on error, 0 on success
  */
-int add_interfaces(char* if_name, int family, unsigned short port,
+int add_interfaces(char* if_name, unsigned short port,
 					unsigned short proto, unsigned short children,
 					struct socket_info** list)
 {
+	char* tmp;
+	int ret = -1;
+	struct ip_addr addr;
+	enum si_flags flags = SI_NONE;
+#ifdef HAVE_IFADDRS
+	/* use the getifaddrs interface to get all the interfaces */
+	struct ifaddrs *addrs;
+	struct ifaddrs *it;
+
+	if (getifaddrs(&addrs) != 0) {
+		LM_ERR("cannot get interfaces list: %s(%d)\n", strerror(errno), errno);
+		return -1;
+	}
+	for (it = addrs; it; it = it->ifa_next)
+		if ((if_name == 0) || (strcmp(if_name, it->ifa_name) == 0)) {
+			if (it->ifa_addr->sa_family != AF_INET &&
+					it->ifa_addr->sa_family != AF_INET6)
+				continue;
+			/*
+			 * if it is ipv6, and there was no explicit interface specified,
+			 * make sure we don't add any "scoped" interface
+			 */
+			if (it->ifa_addr->sa_family == AF_INET6 &&
+					(((struct sockaddr_in6 *)it->ifa_addr)->sin6_scope_id != 0))
+
+				continue;
+			sockaddr2ip_addr(&addr, it->ifa_addr);
+			if ((tmp = ip_addr2a(&addr)) == 0)
+				goto end;
+			if (it->ifa_flags & IFF_LOOPBACK)
+				flags |= SI_IS_LO;
+			if (new_sock2list(tmp, port, proto, 0, 0, children, flags, list)!=0){
+				LM_ERR("new_sock2list failed\n");
+				goto end;
+			}
+			ret = 0;
+		}
+end:
+	freeifaddrs(addrs);
+	return ret;
+#else
 	struct ifconf ifc;
 	struct ifreq ifr;
 	struct ifreq ifrcopy;
@@ -385,10 +435,6 @@ int add_interfaces(char* if_name, int family, unsigned short port,
 	int size;
 	int lastlen;
 	int s;
-	char* tmp;
-	struct ip_addr addr;
-	int ret;
-	enum si_flags flags;
 
 #ifdef HAVE_SOCKADDR_SA_LEN
 	#ifndef MAX
@@ -396,9 +442,7 @@ int add_interfaces(char* if_name, int family, unsigned short port,
 	#endif
 #endif
 	/* ipv4 or ipv6 only*/
-	flags=SI_NONE;
-	s=socket(family, SOCK_DGRAM, 0);
-	ret=-1;
+	s=socket(AF_INET, SOCK_DGRAM, 0);
 	lastlen=0;
 	ifc.ifc_req=0;
 	for (size=100; ; size*=2){
@@ -442,7 +486,7 @@ int add_interfaces(char* if_name, int family, unsigned short port,
 		/* copy contents into ifr structure
 		 * warning: it might be longer (e.g. ipv6 address) */
 		memcpy(&ifr, p, sizeof(ifr));
-		if (ifr.ifr_addr.sa_family!=family){
+		if (ifr.ifr_addr.sa_family!=AF_INET){
 			/*printf("strange family %d skipping...\n",
 					ifr->ifr_addr.sa_family);*/
 			continue;
@@ -493,6 +537,7 @@ error:
 	if (s >= 0)
 		close(s);
 	return -1;
+#endif
 }
 
 
@@ -513,7 +558,7 @@ int fix_socket_list(struct socket_info **list)
 
 	for (si=*list;si;){
 		next=si->next;
-		if (add_interfaces(si->name.s, AF_INET, si->port_no,
+		if (add_interfaces(si->name.s, si->port_no,
 							si->proto, si->children, list)!=-1){
 			/* success => remove current entry (shift the entire array)*/
 			sock_listrm(list, si);
@@ -684,9 +729,10 @@ int fix_socket_list(struct socket_info **list)
 #endif /* USE_MCAST */
 
 #ifdef EXTRA_DEBUG
-		printf("              %.*s [%s]:%s%s\n", si->name.len,
+		printf("              %.*s [%s]:%s%s%s\n", si->name.len,
 				si->name.s, si->address_str.s, si->port_no_str.s,
-		                si->flags & SI_IS_MCAST ? " mcast" : "");
+		                si->flags & SI_IS_MCAST ? " mcast" : "",
+		                is_anycast(si) ? " anycast" : "");
 #endif
 	}
 	/* removing duplicate addresses*/

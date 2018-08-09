@@ -1,23 +1,4 @@
 B2B_LOGIC
-
-Anca-Maria Vamanu
-
-   OpenSIPS
-
-Edited by
-
-Anca-Maria Vamanu
-
-Edited by
-
-Ovidiu Sas
-
-   Copyright © 2009 Anca-Maria
-   Vamanu
-
-   Copyright © 2010 VoIP Embedded, Inc.
-   Revision History
-   Revision $Revision: 8137 $ $Date$
      __________________________________________________________
 
    Table of Contents
@@ -51,7 +32,7 @@ Ovidiu Sas
 
         1.4. Exported Functions
 
-              1.4.1. b2b_init_request
+              1.4.1. b2b_init_request()
               1.4.2. b2b_bridge_request(b2bl_key,entity_no)
 
         1.5. Exported MI Functions
@@ -70,6 +51,22 @@ Ovidiu Sas
         2.6. terminate_call
         2.7. set_state
         2.8. bridge_msg
+
+   3. Contributors
+
+        3.1. By Commit Statistics
+        3.2. By Commit Activity
+
+   4. Documentation
+
+        4.1. Contributors
+
+   List of Tables
+
+   3.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   3.2. Most recently active contributors^(1) to this module
 
    List of Examples
 
@@ -386,7 +383,7 @@ modparam("b2b_logic", "b2bl_th_init_timeout", 60)
 
 1.4. Exported Functions
 
-1.4.1.  b2b_init_request
+1.4.1.  b2b_init_request()
 
    This is the function that must be called by the script writer
    on an initial INVITE for which a B2B scenario must be
@@ -464,22 +461,18 @@ route[b2b_request]
 
 1.5.1.  b2b_trigger_scenario
 
-   This command instantiated a B2B scenario.
+   This command instantiates a B2B scenario.
 
    Name: b2b_trigger_scenario
 
    Parameters:
      * senario_id : the id of the scenario to be instantiated.
      * scenario parameters - it can take 4 more parameters that
-       are scenario parameters
+       are the scenario parameters
 
    MI FIFO Command Format:
-        :b2b_trigger_scenario:fifo_reply
-        marketing
-        sip:bob@opensips.org
-        sip:322@opensips.org:5070
-        sip:alice@opensips.org
-        _empty_line_
+        opensipsctl fifo b2b_trigger_scenario marketing sip:bob@opensips
+.org sip:322@opensips.org:5070 sip:alice@opensips.org
 
 1.5.2.  b2b_bridge
 
@@ -493,25 +486,22 @@ route[b2b_request]
    Name: b2b_bridge
 
    Parameters:
-     * dialog-id : the id of the dialog. If you set the module
+     * dialog_id : the id of the dialog. If you set the module
        parameter dialog-id the server will include the dialogid in
        the generated Invites as the content of a header with name
        'Dialog-ID'.
-     * new uri - the uri of the new destination
-     * flag to specify that the callee must be bridged to the new
-       destination. It is optional. If not present the caller will
-       be bridged.
-     * provisional media uri - the uri of a media server able to
-       play provisional media starting from the beginning of the
-       bridging scenario to the end of it. It is optional. If not
-       present, no other entity will be envolved in the bridging
-       scenario
+     * new_uri - the uri of the new destination
+     * flag (optional) - used to specify that the callee must be
+       bridged to the new destination. If not present the caller
+       will be bridged.
+     * prov_media_uri (optional) - the uri of a media server able
+       to play provisional media starting from the beginning of
+       the bridging scenario to the end of it. It is optional. If
+       not present, no other entity will be envolved in the
+       bridging scenario
 
    MI FIFO Command Format:
-        :b2b_bridge:fifo_reply
-        1020.30
-        sip:alice@opensips.org
-        _empty_line_
+        opensipsctl fifo b2b_bridge 1020.30 sip:alice@opensips.org
 
    opensipsctl Command Format:
         opensipsctl b2b_bridge 1020.30 sip:alice@opensips.org
@@ -526,10 +516,6 @@ route[b2b_request]
    Parameters: none
 
    MI FIFO Command Format:
-        :b2b_list:_reply_fifo_file_
-        _empty_line_
-
-   opensipsctl Command Format:
         opensipsctl fifo b2b_list
 
 Chapter 2. Developer Guide
@@ -676,3 +662,71 @@ ty_no);
    The second argument is the b2bl_key of an existing call.
 
    The third argument is the entity identifier.
+
+Chapter 3. Contributors
+
+3.1. By Commit Statistics
+
+   Table 3.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Anca Vamanu 209 98 9008 2213
+   2. Ovidiu Sas (@ovidiusas) 145 101 2915 1129
+   3. Bogdan-Andrei Iancu (@bogdan-iancu) 36 30 208 191
+   4. Razvan Crainea (@razvancrainea) 25 16 515 172
+   5. Nick Altmann (@nikbyte) 14 6 461 199
+   6. Liviu Chircu (@liviuchircu) 12 9 49 96
+   7. Vlad Paiu (@vladpaiu) 7 5 35 21
+   8. Vlad Patrascu (@rvlad-patrascu) 5 3 10 23
+   9. Ezequiel Lovelle 3 1 1 1
+   10. Peter Lemenkov (@lemenkov) 3 1 1 1
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+3.2. By Commit Activity
+
+   Table 3.2. Most recently active contributors^(1) to this module
+                      Name                   Commit Activity
+   1.  Peter Lemenkov (@lemenkov)          Jun 2018 - Jun 2018
+   2.  Liviu Chircu (@liviuchircu)         Mar 2014 - Jun 2018
+   3.  Vlad Patrascu (@rvlad-patrascu)     May 2017 - May 2018
+   4.  Razvan Crainea (@razvancrainea)     Jun 2011 - Nov 2016
+   5.  Bogdan-Andrei Iancu (@bogdan-iancu) Aug 2009 - Jun 2016
+   6.  Ovidiu Sas (@ovidiusas)             Nov 2010 - Mar 2016
+   7.  Ezequiel Lovelle                    Oct 2014 - Oct 2014
+   8.  Nick Altmann (@nikbyte)             Oct 2012 - Jan 2013
+   9.  Anca Vamanu                         Aug 2009 - May 2012
+   10. Vlad Paiu (@vladpaiu)               Aug 2011 - Mar 2012
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 4. Documentation
+
+4.1. Contributors
+
+   Last edited by: Peter Lemenkov (@lemenkov), Liviu Chircu
+   (@liviuchircu), Vlad Patrascu (@rvlad-patrascu), Bogdan-Andrei
+   Iancu (@bogdan-iancu), Nick Altmann (@nikbyte), Razvan Crainea
+   (@razvancrainea), Ovidiu Sas (@ovidiusas), Vlad Paiu
+   (@vladpaiu), Anca Vamanu.
+
+   Documentation Copyrights:
+
+   Copyright © 2010 VoIP Embedded, Inc.
+
+   Copyright © 2009 Anca-Maria Vamanu

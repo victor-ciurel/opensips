@@ -1771,7 +1771,16 @@ int tr_eval_ip(struct sip_msg *msg, tr_param_t *tp,int subtype,
 			break;
 		case TR_IP_RESOLVE:
 			val->flags = PV_VAL_STR;
-			server = resolvehost(val->rs.s,0);
+			buffer = pkg_malloc(val->rs.len + 1);
+			if (!buffer) {
+				LM_ERR("out of pkg memory!\n");
+				val->flags = PV_VAL_NULL;
+				return -1;
+			}
+			memcpy(buffer, val->rs.s, val->rs.len);
+			buffer[val->rs.len] = '\0';
+			server = resolvehost(buffer, 0);
+			pkg_free(buffer);
 			if (!server || !server->h_addr)
 			{
 				val->flags = PV_VAL_NULL;
@@ -1870,7 +1879,8 @@ int tr_eval_re(struct sip_msg *msg, tr_param_t *tp, int subtype,
 
 				LM_DBG("Trying to apply regexp [%.*s] on : [%.*s]\n",
 						sv.len,sv.s,val->rs.len, val->rs.s);
-				if (!buf_re.s || buf_re.len != sv.len || memcmp(buf_re.s, sv.s, sv.len) != 0) {
+				if (subst_re==NULL || !buf_re.s || buf_re.len != sv.len ||
+				memcmp(buf_re.s, sv.s, sv.len) != 0) {
 					LM_DBG("we must compile the regexp\n");
 					if (subst_re != NULL) {
 						LM_DBG("freeing prev regexp\n");
@@ -2351,7 +2361,7 @@ char* parse_transformation(str *in, trans_t **tr)
 	str s;
 	trans_export_t *tr_export;
 	trans_extra_t *tr_extra;
-	int i;
+	int i, nesting_level = 0;
 
 	if(in==NULL || in->s==NULL || tr==NULL)
 		return NULL;
@@ -2415,7 +2425,16 @@ char* parse_transformation(str *in, trans_t **tr)
 		t->trf = tr_export->eval_func;
 
 		s.s = p;
-		while(is_in_str(p, in) && *p != TR_RBRACKET) p++;
+		/* allow nested transformations! */
+		while(is_in_str(p, in) && (nesting_level > 0 || *p != TR_RBRACKET)) {
+			if (*p == TR_LBRACKET)
+				nesting_level++;
+
+			if (*p == TR_RBRACKET)
+				nesting_level--;
+			p++;
+		}
+
 		if(*p == '\0') {
 			LM_ERR("invalid transformation: %.*s\n", in->len, in->s);
 			goto error;

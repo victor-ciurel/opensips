@@ -33,6 +33,8 @@
 #include "../../trace_api.h"
 #include "../../resolve.h"
 
+#include "../tls_mgm/api.h"
+
 #include "rest_methods.h"
 #include "rest_cb.h"
 
@@ -42,6 +44,10 @@ static char print_buff[MAX_CONTENT_TYPE_LEN];
 
 /* additional HTTP headers for the next request */
 static struct curl_slist *header_list = NULL;
+
+/* specific TLS client cert/key for the next request */
+extern struct tls_mgm_binds tls_api;
+struct tls_domain *tls_dom;
 
 /* simultaneous ongoing transfers within this process */
 static int transfers;
@@ -65,8 +71,6 @@ extern trace_proto_t tprot;
 static inline int rest_trace_enabled(void);
 static int trace_rest_message( rest_trace_param_t* tparam );
 
-
-
 #define clean_header_list \
 	do { \
 		if (header_list) { \
@@ -80,7 +84,6 @@ static int trace_rest_message( rest_trace_param_t* tparam );
 		rc = curl_easy_setopt(h, opt, value); \
 		if (rc != CURLE_OK) { \
 			LM_ERR("curl_easy_setopt(%d): (%s)\n", opt, curl_easy_strerror(rc)); \
-			clean_header_list; \
 			goto cleanup; \
 		} \
 	} while (0)
@@ -124,7 +127,8 @@ int trace_rest_request_cb(CURL *handle, curl_infotype type, char *data, size_t s
 			/* set port to 0 */
 			tparam->local_port = 0;
 #endif
-			strcpy( tparam->local_ip, ip);
+			/* coverity[BUFFER_SIZE_WARNING] */
+			strncpy( tparam->local_ip, ip, INET6_ADDRSTRLEN);
 
 #if ( LIBCURL_VERSION_NUM >= 0x072100 )
 			curl_easy_getinfo( handle, CURLINFO_PRIMARY_IP, &ip);
@@ -133,7 +137,8 @@ int trace_rest_request_cb(CURL *handle, curl_infotype type, char *data, size_t s
 			/* set boggus localhost ip */
 			ip = "127.0.0.1";
 #endif
-			strcpy( tparam->remote_ip, ip);
+			/* coverity[BUFFER_SIZE_WARNING] */
+			strncpy( tparam->remote_ip, ip, INET6_ADDRSTRLEN);
 
 #if ( LIBCURL_VERSION_NUM >= 0x071900 )
 			curl_easy_getinfo( handle, CURLINFO_PRIMARY_PORT, &tparam->remote_port);
@@ -350,18 +355,25 @@ int start_async_http_req(struct sip_msg *msg, enum rest_client_method method,
 
 	if (transfers == FD_SETSIZE) {
 		LM_ERR("too many ongoing transfers: %d\n", FD_SETSIZE);
-		clean_header_list;
-		return ASYNC_NO_IO;
+		goto cleanup;
 	}
 
 	handle = curl_easy_init();
 	if (!handle) {
 		LM_ERR("Init curl handle failed!\n");
-		clean_header_list;
-		return ASYNC_NO_IO;
+		goto cleanup;
 	}
 
 	w_curl_easy_setopt(handle, CURLOPT_URL, url);
+	if (curl_http_version != CURL_HTTP_VERSION_NONE)
+		w_curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, curl_http_version);
+
+	if (tls_dom) {
+		w_curl_easy_setopt(handle, CURLOPT_SSLCERT, tls_dom->cert.s);
+		w_curl_easy_setopt(handle, CURLOPT_SSLKEY, tls_dom->pkey.s);
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
+	}
 
 	switch (method) {
 	case REST_CLIENT_POST:
@@ -539,9 +551,14 @@ error:
 	}
 	put_multi(multi_list);
 
+	curl_easy_cleanup(handle);
+
 cleanup:
 	clean_header_list;
-	curl_easy_cleanup(handle);
+	if (tls_dom) {
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
+	}
 	return ASYNC_NO_IO;
 }
 
@@ -686,17 +703,25 @@ int rest_get_method(struct sip_msg *msg, char *url,
 		sync_handle = curl_easy_init();
 		if (!sync_handle) {
 			LM_ERR("Init curl handle failed!\n");
-			clean_header_list;
-			return -1;
+			goto cleanup;
 		}
 	} else {
 		curl_easy_reset(sync_handle);
+	}
+
+	if (tls_dom) {
+		w_curl_easy_setopt(sync_handle, CURLOPT_SSLCERT, tls_dom->cert.s);
+		w_curl_easy_setopt(sync_handle, CURLOPT_SSLKEY, tls_dom->pkey.s);
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
 	}
 
 	if (header_list)
 		w_curl_easy_setopt(sync_handle, CURLOPT_HTTPHEADER, header_list);
 
 	w_curl_easy_setopt(sync_handle, CURLOPT_URL, url);
+	if (curl_http_version != CURL_HTTP_VERSION_NONE)
+		w_curl_easy_setopt(sync_handle, CURLOPT_HTTP_VERSION, curl_http_version);
 
 	w_curl_easy_setopt(sync_handle, CURLOPT_CONNECTTIMEOUT, connection_timeout);
 	w_curl_easy_setopt(sync_handle, CURLOPT_TIMEOUT, curl_timeout);
@@ -725,7 +750,8 @@ int rest_get_method(struct sip_msg *msg, char *url,
 	/* trace rest request */
 	if ( rest_trace_enabled() ) {
 		memset( &tparam, 0, sizeof tparam);
-		tparam.callid = msg->callid->body;
+		if (msg->callid)
+			tparam.callid = msg->callid->body;
 
 		w_curl_easy_setopt(sync_handle, CURLOPT_DEBUGFUNCTION, trace_rest_request_cb);
 		w_curl_easy_setopt(sync_handle, CURLOPT_DEBUGDATA, &tparam);
@@ -785,6 +811,11 @@ int rest_get_method(struct sip_msg *msg, char *url,
 	return 1;
 
 cleanup:
+	clean_header_list;
+	if (tls_dom) {
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
+	}
 	return -1;
 }
 
@@ -814,8 +845,7 @@ int rest_post_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 		sync_handle = curl_easy_init();
 		if (!sync_handle) {
 			LM_ERR("Init curl handle failed!\n");
-			clean_header_list;
-			return -1;
+			goto cleanup;
 		}
 	} else {
 		curl_easy_reset(sync_handle);
@@ -823,8 +853,7 @@ int rest_post_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 
 	if (!sync_handle) {
 		LM_ERR("Init curl handle failed!\n");
-		clean_header_list;
-		return -1;
+		goto cleanup;
 	}
 
 	if (ctype) {
@@ -832,10 +861,19 @@ int rest_post_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 		header_list = curl_slist_append(header_list, print_buff);
 	}
 
+	if (tls_dom) {
+		w_curl_easy_setopt(sync_handle, CURLOPT_SSLCERT, tls_dom->cert.s);
+		w_curl_easy_setopt(sync_handle, CURLOPT_SSLKEY, tls_dom->pkey.s);
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
+	}
+
 	if (header_list)
 		w_curl_easy_setopt(sync_handle, CURLOPT_HTTPHEADER, header_list);
 
 	w_curl_easy_setopt(sync_handle, CURLOPT_URL, url);
+	if (curl_http_version != CURL_HTTP_VERSION_NONE)
+		w_curl_easy_setopt(sync_handle, CURLOPT_HTTP_VERSION, curl_http_version);
 
 	w_curl_easy_setopt(sync_handle, CURLOPT_POST, 1);
 	w_curl_easy_setopt(sync_handle, CURLOPT_POSTFIELDS, body);
@@ -847,11 +885,8 @@ int rest_post_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 	w_curl_easy_setopt(sync_handle, CURLOPT_STDERR, stdout);
 	w_curl_easy_setopt(sync_handle, CURLOPT_FAILONERROR, 0);
 
-	w_curl_easy_setopt(sync_handle, CURLOPT_HEADER, 1L);
 	w_curl_easy_setopt(sync_handle, CURLOPT_WRITEFUNCTION, write_func);
 	w_curl_easy_setopt(sync_handle, CURLOPT_WRITEDATA, &res_body);
-
-
 
 	w_curl_easy_setopt(sync_handle, CURLOPT_HEADERFUNCTION, header_func);
 	w_curl_easy_setopt(sync_handle, CURLOPT_HEADERDATA, &st);
@@ -927,7 +962,13 @@ int rest_post_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 		pkg_free(st.s);
 
 	return 1;
+
 cleanup:
+	clean_header_list;
+	if (tls_dom) {
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
+	}
 	return -1;
 }
 
@@ -957,8 +998,7 @@ int rest_put_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 		sync_handle = curl_easy_init();
 		if (!sync_handle) {
 			LM_ERR("Init curl handle failed!\n");
-			clean_header_list;
-			return -1;
+			goto cleanup;
 		}
 	} else {
 		curl_easy_reset(sync_handle);
@@ -969,10 +1009,20 @@ int rest_put_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 		header_list = curl_slist_append(header_list, print_buff);
 	}
 
+	if (tls_dom) {
+		w_curl_easy_setopt(sync_handle, CURLOPT_SSLCERT, tls_dom->cert.s);
+		w_curl_easy_setopt(sync_handle, CURLOPT_SSLKEY, tls_dom->pkey.s);
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
+	}
+
 	if (header_list)
 		w_curl_easy_setopt(sync_handle, CURLOPT_HTTPHEADER, header_list);
 
 	w_curl_easy_setopt(sync_handle, CURLOPT_URL, url);
+	if (curl_http_version != CURL_HTTP_VERSION_NONE)
+		w_curl_easy_setopt(sync_handle, CURLOPT_HTTP_VERSION, curl_http_version);
+
 	w_curl_easy_setopt(sync_handle, CURLOPT_CUSTOMREQUEST, "PUT");
 	w_curl_easy_setopt(sync_handle, CURLOPT_POSTFIELDS, body);
 
@@ -1061,6 +1111,11 @@ int rest_put_method(struct sip_msg *msg, char *url, char *body, char *ctype,
 	return 1;
 
 cleanup:
+	clean_header_list;
+	if (tls_dom) {
+		tls_api.release_domain(tls_dom);
+		tls_dom = NULL;
+	}
 	return -1;
 }
 
@@ -1073,7 +1128,7 @@ int rest_append_hf_method(struct sip_msg *msg, str *hfv)
 {
 	char buf[MAX_HEADER_FIELD_LEN];
 
-	if (hfv->len > MAX_HEADER_FIELD_LEN) {
+	if (hfv->len + 1 > MAX_HEADER_FIELD_LEN) {
 		LM_ERR("header field buffer too small\n");
 		return -1;
 	}
@@ -1081,8 +1136,26 @@ int rest_append_hf_method(struct sip_msg *msg, str *hfv)
 	/* TODO: header validation */
 
 	/* append the header to the global list */
-	strncpy(buf, hfv->s, hfv->len);
+	memcpy(buf, hfv->s, hfv->len);
+	buf[hfv->len] = '\0';
 	header_list = curl_slist_append(header_list, buf);
+
+	return 1;
+}
+
+/**
+ * rest_set_tls - set a custom TLS client cert/key for the next transfer
+ * @msg:            sip message struct
+ * @tls_client_dom:	tls_mgm specific client domain identifier
+ */
+int rest_init_client_tls(struct sip_msg *msg, str *tls_client_dom)
+{
+	tls_dom = tls_api.find_client_domain_name(tls_client_dom);
+	if (!tls_dom) {
+		LM_ERR("failed to match TLS client domain '%.*s'!\n",
+		       tls_client_dom->len, tls_client_dom->s);
+		return -1;
+	}
 
 	return 1;
 }

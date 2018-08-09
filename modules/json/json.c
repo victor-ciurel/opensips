@@ -22,6 +22,7 @@
  * History:
  * ---------
  *  2009-09-04  first version (andreidragus)
+ *  2017-12-12  use opensips_json_c_helper.h (besser82)
  */
 
 
@@ -43,13 +44,8 @@
 #include "../../mi/mi.h"
 #include "../tm/tm_load.h"
 #include "../rr/api.h"
+#include "../../lib/json/opensips_json_c_helper.h"
 
-
-#include <json.h>
-#include <json_object_private.h>
-
-
-#define JSON_BUFF_SIZE 4096
 
 enum
 {
@@ -93,15 +89,17 @@ typedef struct _json_name
 }json_name;
 
 pv_json_t * all;
-char buff[JSON_BUFF_SIZE];
+char buff[JSON_FILE_BUF_SIZE];
 
 static int mod_init(void);
 static int child_init(int );
 static void mod_destroy(void);
-void json_object_array_del(struct json_object* , int );
 static int fixup_json_bind(void**, int );
 static int pv_set_json (struct sip_msg*,  pv_param_t*, int , pv_value_t* );
 static int pv_get_json (struct sip_msg*,  pv_param_t*, pv_value_t* );
+static int pv_get_json_compact(struct sip_msg*,  pv_param_t*, pv_value_t* );
+static int pv_get_json_pretty(struct sip_msg*,  pv_param_t*, pv_value_t* );
+static int pv_get_json_ext(struct sip_msg*,  pv_param_t*, pv_value_t* , int flags);
 static int json_bind(struct sip_msg* , char* , char* );
 static void print_tag_list( json_tag *, json_tag *, int);
 static json_t * get_object(pv_json_t * , pv_param_t* ,  json_tag **, int  );
@@ -123,6 +121,10 @@ static cmd_export_t cmds[]={
 
 static pv_export_t mod_items[] = {
 	{ {"json",  sizeof("json")-1},    PVT_JSON, pv_get_json,
+		pv_set_json, pv_parse_json_name, 0, 0, 0},
+	{ {"json_compact",  sizeof("json_compact")-1}, PVT_JSON, pv_get_json_compact,
+		pv_set_json, pv_parse_json_name, 0, 0, 0},
+	{ {"json_pretty",  sizeof("json_pretty")-1}, PVT_JSON, pv_get_json_pretty,
 		pv_set_json, pv_parse_json_name, 0, 0, 0},
 	{ {0, 0}, 0, 0, 0, 0, 0, 0, 0 }
 };
@@ -298,19 +300,9 @@ json_t * get_object(pv_json_t * var, pv_param_t* pvp ,  json_tag ** tag,
 				!json_object_is_type( cur_obj, json_type_object ) )
 				goto error;
 
-#if JSON_LIB_VERSION < 10
-			cur_obj = json_object_object_get( cur_obj, buff );
-
-			if( cur_obj == NULL && tag == NULL)
-				goto error;
-#else
 			if (!json_object_object_get_ex( cur_obj,buff, &cur_obj ) &&
 				tag == NULL)
 				goto error;
-#endif
-
-
-
 		}
 
 		if( cur_tag->type & TAG_IDX )
@@ -374,8 +366,22 @@ error:
 
 }
 
+int pv_get_json(struct sip_msg* msg,  pv_param_t* pvp, pv_value_t* val)
+{
+	return pv_get_json_ext(msg, pvp, val, JSON_C_TO_STRING_SPACED);
+}
 
-int pv_get_json (struct sip_msg* msg,  pv_param_t* pvp, pv_value_t* val)
+int pv_get_json_compact(struct sip_msg* msg,  pv_param_t* pvp, pv_value_t* val)
+{
+	return pv_get_json_ext(msg, pvp, val, JSON_C_TO_STRING_PLAIN);
+}
+
+int pv_get_json_pretty(struct sip_msg* msg,  pv_param_t* pvp, pv_value_t* val)
+{
+	return pv_get_json_ext(msg, pvp, val, JSON_C_TO_STRING_PRETTY);
+}
+
+int pv_get_json_ext(struct sip_msg* msg,  pv_param_t* pvp, pv_value_t* val, int flags)
 {
 
 	pv_json_t * var ;
@@ -418,14 +424,14 @@ int pv_get_json (struct sip_msg* msg,  pv_param_t* pvp, pv_value_t* val)
 	{
 		val->flags = PV_VAL_STR;
 		val->rs.s = (char*)json_object_get_string( obj );
-#if JSON_LIB_VERSION >= 10
+#if JSON_C_VERSION_NUM >= JSON_C_VERSION_010
 		val->rs.len = json_object_get_string_len( obj );
 #else
 		val->rs.len = strlen(val->rs.s);
 #endif
 	} else {
 		val->flags = PV_VAL_STR;
-		val->rs.s = (char*)json_object_to_json_string( obj );
+		val->rs.s = (char*)json_object_to_json_string_ext( obj, flags);
 		val->rs.len = strlen(val->rs.s);
 	}
 
@@ -590,7 +596,7 @@ int pv_set_json (struct sip_msg* msg,  pv_param_t* pvp, int flag ,
 		if (obj == NULL)
 		{
 			LM_ERR("Error parsing json: %s\n",
-#if JSON_LIB_VERSION >= 10
+#if JSON_C_VERSION_NUM >= JSON_C_VERSION_010
 				json_tokener_error_desc(parse_status)
 #else
 				json_tokener_errors[(unsigned long)obj]
@@ -951,12 +957,7 @@ int pv_parse_json_name (pv_spec_p sp, str *in)
 	if( get_value(state, id, start, cur) )
 		return -1;
 
-
 	sp->pvp.pvn.u.dname = id ;
-	sp->type = PVT_JSON;
-	sp->getf = pv_get_json;
-	sp->setf = pv_set_json;
-
 
 	return 0;
 }

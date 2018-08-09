@@ -4,7 +4,7 @@
 
 	<title>&adminguide;</title>
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 		This module is an implementation of a local cache system designed as
@@ -17,7 +17,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -42,10 +42,10 @@
 	</section>
 	</section>
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 		<title>Exported Parameters</title>
 
-		<section>
+		<section id="param_cachedb_url" xreflabel="cachedb_url">
 		<title><varname>cachedb_url</varname> (string)</title>
 		<para>
 			URL parameter used to define cachedb_local collections. One collection
@@ -73,7 +73,7 @@ modparam("cachedb_local", "cachedb_url", "local://")
 modparam("cachedb_local", "cachedb_url", "local:///collection1")
 ### this URL will use collection2; it will be referenced from the script
 ### with "local:group2"
-modparam("cachedb_local", "cachedb_url", "local:group2///collection2")
+modparam("cachedb_local", "cachedb_url", "local:group2:///collection2")
 
 ## how to use the URLs from the script
 ## as defined above, this call will use collection1
@@ -85,7 +85,7 @@ cache_store("local:group2", ...)
 		</example>
 	</section>
 
-		<section>
+		<section id="param_cache_collections" xreflabel="cache_collections">
 		<title><varname>cache_collections</varname> (string)</title>
 		<para>
 			Using this parameter collections(hash tables) and their sizes can be defined. Each
@@ -112,7 +112,7 @@ modparam("cachedb_local", "cache_collections", "collection1; collection2=5; defa
 		</example>
 	</section>
 
-	<section>
+	<section id="param_cache_clean_period" xreflabel="cache_clean_period">
 		<title><varname>cache_clean_period</varname> (int)</title>
 		<para>
 			The time interval in seconds at which to go through all the
@@ -132,10 +132,10 @@ modparam("cachedb_local", "cache_clean_period", 1200)
 		</example>
 	</section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 		<title>Exported Functions</title>
 
-		<section>
+		<section id="func_cache_remove_chunk" xreflabel="cache_remove_chunk()">
 			<title>
 			<function moreinfo="none">cache_remove_chunk([collection,] glob)</function>
 			</title>
@@ -161,11 +161,13 @@ modparam("cachedb_local", "cache_clean_period", 1200)
 
 	</section>
 
-	<section>
+	<section id="exported_mi_functions" xreflabel="Exported MI Functions">
 	<title>Exported MI Functions</title>
 
-		<section>
-		<title><varname>cache_remove_chunk</varname></title>
+		<section id="mi_cache_remove_chunk" xreflabel="cache_remove_chunk">
+		<title>
+			<function moreinfo="none">cache_remove_chunk</function>
+		</title>
 		<para>
 		Removes all local cache entries that match the provided glob param.
 		</para>

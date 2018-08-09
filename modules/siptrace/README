@@ -1,18 +1,4 @@
 SipTrace Module
-
-Daniel-Constantin Mierla
-
-   <miconda@gmail.com>
-
-Edited by
-
-Daniel-Constantin Mierla
-
-   <miconda@gmail.com>
-
-   Copyright © 2006 Voice Sistem SRL
-   Revision History
-   Revision $Revision: 8740 $ $Date$
      __________________________________________________________
 
    Table of Contents
@@ -42,6 +28,22 @@ Daniel-Constantin Mierla
 
         1.6. Database setup
         1.7. Known issues
+
+   2. Contributors
+
+        2.1. By Commit Statistics
+        2.2. By Commit Activity
+
+   3. Documentation
+
+        3.1. Contributors
+
+   List of Tables
+
+   2.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   2.2. Most recently active contributors^(1) to this module
 
    List of Examples
 
@@ -253,13 +255,13 @@ ar(user)");
 /* Example 2: how to trace initial INVITE and BYE, sip and rest */
         if (has_totag()) {
                 if (is_method("BYE")) {
-                        sip_trace("$var(trace_id)", "m", "sip|rest", ""$
-var(user)")
+                        sip_trace("$var(trace_id)", "m", "sip|rest", "$v
+ar(user)");
                 }
         } else {
                 if (is_method("INVITE")) {
                         sip_trace("$var(trace_id)", "m", "sip|rest", "$v
-ar(user)")
+ar(user)");
                 }
         }
 
@@ -289,34 +291,33 @@ var(user)");
 
 1.5.1.  sip_trace
 
+   Enable/disable tracing(globally or for a specific trace id) or
+   dump info about trace ids.
+
    Name: sip_trace
 
    Parameters:
-     * trace_id/trace_mode : if it is a trace_id name it dumps
-       info about that trace id if the second parameter is not set
-       to on/off or it turns tracing on/off for a certain trace id
-       if it is set, else if it's on/off it turns on/off tracing
-       for all the trace ids. If you turn global trace on but some
-       of the trace ids had trace to off, then they shall not do
-       tracing. In order to do that you have to set the trace_on
-       parameter for each trace_id. Possible values are:
-          + on
-          + off
-          + trace_id name
-       The parameter is optional - if missing, the command will
-       return the status of the SIP message tracing (as string
-       “on” or “off”) marked with global and the status for each
-       trace id without changing anything.
-     * trace_mode : this parameter has the same meaning as the
-       trace_mode in the first parameter, but this time it
-       enables/disables tracing for a certain trace id given in
-       the first parameter.
+     * trace_id (optional) - a trace_id name. If this parameter is
+       missing the command will either dump info for all tace
+       ids(and return the global tracing state) or set the global
+       tracing state.
+     * trace_mode (optional) - possible values are:
+          + "on" - enable tracing
+          + "off" - disable tracing
+       If the first parameter is missing, the command wil set the
+       global tracing state, otherwise it will set the state for a
+       specific trace id. If you turn global trace on but some of
+       the trace ids had tracing set to off, then they shall not
+       do tracing. If you want to turn the tracing on for all
+       trace ids you will have to set it separately for each of
+       them.
+       If this parameter is missing but the first is set, the
+       command will only dump info about that specific trace id.
+       If both parameters are missing, the command will return the
+       global tracing state and dump info for each trace_id.
 
    MI FIFO Command Format:
-                :sip_trace:_reply_fifo_file_
-                trace_id/trace_mode
-                trace_mode
-                _empty_line_
+                opensipsctl fifo sip_trace tid2 on
 
 1.6. Database setup
 
@@ -336,3 +337,83 @@ var(user)");
    function. Fixing it would mean to register a fwdcb callback
    that would be called for all the messages but would be used
    only by ACKs, which would be highly ineffective.
+
+Chapter 2. Contributors
+
+2.1. By Commit Statistics
+
+   Table 2.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Ionut Ionita (@ionutrazvanionita) 107 52 2676 1887
+   2. Bogdan-Andrei Iancu (@bogdan-iancu) 87 68 769 638
+   3. Daniel-Constantin Mierla (@miconda) 48 26 2215 191
+   4. Razvan Crainea (@razvancrainea) 22 19 126 87
+   5. Vlad Paiu (@vladpaiu) 21 8 335 528
+   6. Liviu Chircu (@liviuchircu) 19 16 55 64
+   7. Henning Westerholt (@henningw) 11 6 146 155
+   8. Andrei Datcu (@andrei-datcu) 11 5 284 135
+   9. Vlad Patrascu (@rvlad-patrascu) 7 4 66 59
+   10. Alexandr Dubovikov (@adubovikov) 6 1 500 4
+
+   All remaining contributors: Dusan Klinec, Andreas Heise, Sergio
+   Gutierrez, Dan Pascu (@danpascu), Konstantin Bokarius, Iouri
+   Kharon, Peter Lemenkov (@lemenkov), Edson Gellert Schubert,
+   Elena-Ramona Modroiu, Eric Tamme (@etamme).
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+2.2. By Commit Activity
+
+   Table 2.2. Most recently active contributors^(1) to this module
+                      Name                   Commit Activity
+   1.  Liviu Chircu (@liviuchircu)         Jan 2013 - Aug 2018
+   2.  Peter Lemenkov (@lemenkov)          Jun 2018 - Jun 2018
+   3.  Vlad Patrascu (@rvlad-patrascu)     May 2017 - May 2018
+   4.  Razvan Crainea (@razvancrainea)     Jun 2011 - Apr 2018
+   5.  Bogdan-Andrei Iancu (@bogdan-iancu) Jul 2006 - Jan 2018
+   6.  Eric Tamme (@etamme)                Sep 2017 - Sep 2017
+   7.  Ionut Ionita (@ionutrazvanionita)   Nov 2014 - Apr 2017
+   8.  Dusan Klinec                        Dec 2015 - Dec 2015
+   9.  Andrei Datcu (@andrei-datcu)        Jun 2014 - Jul 2014
+   10. Vlad Paiu (@vladpaiu)               Jun 2011 - Nov 2013
+
+   All remaining contributors: Alexandr Dubovikov (@adubovikov),
+   Sergio Gutierrez, Dan Pascu (@danpascu), Daniel-Constantin
+   Mierla (@miconda), Iouri Kharon, Konstantin Bokarius, Edson
+   Gellert Schubert, Henning Westerholt (@henningw), Andreas
+   Heise, Elena-Ramona Modroiu.
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 3. Documentation
+
+3.1. Contributors
+
+   Last edited by: Liviu Chircu (@liviuchircu), Peter Lemenkov
+   (@lemenkov), Vlad Patrascu (@rvlad-patrascu), Ionut Ionita
+   (@ionutrazvanionita), Andrei Datcu (@andrei-datcu),
+   Bogdan-Andrei Iancu (@bogdan-iancu), Razvan Crainea
+   (@razvancrainea), Alexandr Dubovikov (@adubovikov),
+   Daniel-Constantin Mierla (@miconda), Konstantin Bokarius, Edson
+   Gellert Schubert, Henning Westerholt (@henningw), Elena-Ramona
+   Modroiu.
+
+   Documentation Copyrights:
+
+   Copyright © 2006 Voice Sistem SRL

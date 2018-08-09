@@ -82,7 +82,8 @@
 #include "../../mod_fix.h"
 #include "../../trim.h"
 
-#include"codecs.h"
+#include "codecs.h"
+#include "list_hdr.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,7 +123,8 @@ static int is_method_f(struct sip_msg* msg, char* , char *);
 static int has_body_f(struct sip_msg *msg, char *type, char *str2 );
 static int is_privacy_f(struct sip_msg *msg, char *privacy, char *str2 );
 static int remove_body_part_f(struct sip_msg *msg, char *str1, char *str2 );
-static int add_body_part_f(struct sip_msg *msg, char *str1, char *str2 );
+static int add_body_part_f(struct sip_msg *msg, char *str1, char *str2,
+	char *str3 );
 static int is_audio_on_hold_f(struct sip_msg *msg, char *str1, char *str2 );
 static int w_sip_validate(struct sip_msg *msg, char *flags_s, char* pv_result);
 
@@ -136,6 +138,11 @@ static int add_header_fixup(void** param, int param_no);
 static int fixup_body_type(void** param, int param_no);
 static int fixup_privacy(void** param, int param_no);
 static int fixup_sip_validate(void** param, int param_no);
+
+static int hl_opt_fixup(void** param, int param_no);
+static int list_hdr_has_option(struct sip_msg*, char*, char *);
+static int list_hdr_add_option(struct sip_msg*, char*, char *);
+static int list_hdr_remove_option(struct sip_msg*, char*, char *);
 
 static int change_reply_status_f(struct sip_msg*, char*, char *);
 static int change_reply_status_fixup(void** param, int param_no);
@@ -204,6 +211,9 @@ static cmd_export_t cmds[]={
 	{"add_body_part",    (cmd_function)add_body_part_f,   2,
 		add_header_fixup, 0,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|LOCAL_ROUTE},
+	{"add_body_part",    (cmd_function)add_body_part_f,   3,
+		add_header_fixup, 0,
+		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|LOCAL_ROUTE},
 	{"codec_exists",	(cmd_function)codec_find,	1,
 		fixup_codec,0,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|LOCAL_ROUTE},
@@ -263,6 +273,15 @@ static cmd_export_t cmds[]={
 	{"stream_delete",	(cmd_function)stream_delete,             1,
 		fixup_regexp_dynamic_null,0,
 		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|LOCAL_ROUTE},
+	{"list_hdr_has_option", (cmd_function)list_hdr_has_option,   2,
+		hl_opt_fixup, NULL,
+		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|LOCAL_ROUTE},
+	{"list_hdr_add_option", (cmd_function)list_hdr_add_option,   2,
+		hl_opt_fixup, NULL,
+		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|LOCAL_ROUTE},
+	{"list_hdr_remove_option", (cmd_function)list_hdr_remove_option,   2,
+		hl_opt_fixup, NULL,
+		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|LOCAL_ROUTE},
 	{0,0,0,0,0,0}
 };
 
@@ -291,36 +310,6 @@ struct module_exports exports= {
 static int mod_init(void)
 {
 	LM_INFO("initializing...\n");
-	return 0;
-}
-
-static inline int find_line_start(char *text, unsigned int text_len,
-		char **buf, unsigned int *buf_len)
-{
-	char *ch, *start;
-	unsigned int len;
-
-	start = *buf;
-	len = *buf_len;
-
-	while (text_len <= len) {
-		if (strncmp(text, start, text_len) == 0) {
-			*buf = start;
-			*buf_len = len;
-			return 1;
-		}
-		if ((ch = memchr(start, 13, len - 1))) {
-			if (*(ch + 1) != 10) {
-				LM_ERR("No LF after CR\n");
-				return 0;
-			}
-			len = len - (ch - start + 2);
-			start = ch + 2;
-		} else {
-			LM_ERR("No CRLF found\n");
-			return 0;
-		}
-	}
 	return 0;
 }
 
@@ -460,7 +449,11 @@ static int remove_hf_match_f(struct sip_msg* msg, char* pattern, char* regex_or_
 		tmp = *(hf->name.s+hf->name.len);
 		*(hf->name.s+hf->name.len) = 0;
 		if( matchtype == 'g' ) { /* GLOB */
+			#ifdef FNM_CASEFOLD
+			if(fnmatch(pat->s, hf->name.s, FNM_CASEFOLD) !=0 ){
+			#else
 			if(fnmatch(pat->s, hf->name.s, 0) !=0 ){
+			#endif
 				*(hf->name.s+hf->name.len) = tmp;
 				continue;
 			}
@@ -982,6 +975,8 @@ static int add_header_fixup(void** param, int param_no)
 		return fixup_spve_null(param, param_no);
 	} else if(param_no==2) {
 		return hname_fixup(param, param_no);
+	} else if(param_no==3) {
+		return fixup_spve(param);
 	} else {
 		LM_ERR("wrong number of parameters\n");
 		return E_UNSPEC;
@@ -1113,10 +1108,12 @@ static int remove_body_part_f(struct sip_msg *msg, char *type, char *revert )
 /*
  *	Function to add a new body
  * */
-static int add_body_part_f(struct sip_msg *msg, char *nbody, char *ctype )
+static int add_body_part_f(struct sip_msg *msg, char *nbody, char *ctype,
+															char *extra_hdrs)
 {
 	str body;
 	str mime;
+	str hdrs;
 
 	if(fixup_get_svalue(msg, (gparam_p)nbody, &body)!=0) {
 		LM_ERR("cannot print the format\n");
@@ -1138,7 +1135,16 @@ static int add_body_part_f(struct sip_msg *msg, char *nbody, char *ctype )
 		return -1;
 	}
 
-	if (add_body_part(msg, &mime, &body)==NULL) {
+	if (extra_hdrs) {
+		if(fixup_get_svalue(msg, (gparam_p)extra_hdrs, &hdrs)!=0) {
+			LM_ERR("cannot print the headers format\n");
+			return -1;
+		}
+		if (hdrs.s==NULL || hdrs.len==0)
+			extra_hdrs = NULL;
+	}
+
+	if (add_body_part(msg, &mime, extra_hdrs?&hdrs:NULL, &body)==NULL) {
 		LM_ERR("failed to add new body part <%.*s>\n",
 			mime.len, mime.s);
 		return -1;
@@ -1167,7 +1173,7 @@ static int is_audio_on_hold_f(struct sip_msg *msg, char *str1, char *str2 )
 				if(sdp_stream->media.len==AUDIO_STR_LEN &&
 						strncmp(sdp_stream->media.s,AUDIO_STR,AUDIO_STR_LEN)==0 &&
 						sdp_stream->is_on_hold)
-					return 1;
+					return sdp_stream->is_on_hold;
 				sdp_stream_num++;
 			}
 			sdp_session_num++;
@@ -1261,7 +1267,7 @@ static int fixup_sip_validate(void** param, int param_no)
 static int sip_validate_hdrs(struct sip_msg *msg)
 {
 	struct disposition *disp;
-	struct hdr_field* hf;
+	struct hdr_field* hf, *hf2;
 	struct to_body *to;
 	content_t * cont;
 	struct via_body *via_b;
@@ -1269,6 +1275,7 @@ static int sip_validate_hdrs(struct sip_msg *msg)
 	char *s_aux, *e_aux;
 	unsigned u_aux;
 	int i_aux;
+	struct sip_uri uri, uri2;
 
 #define CHECK_HDR_EMPTY() \
 	do { \
@@ -1375,13 +1382,10 @@ static int sip_validate_hdrs(struct sip_msg *msg)
 				free_disposition(&disp);
 				break;
 
-				/* to-style headers */
+			/* To style headers */
 			case HDR_FROM_T:
-			case HDR_PPI_T:
-			case HDR_PAI_T:
 			case HDR_RPID_T:
 			case HDR_REFER_TO_T:
-			case HDR_DIVERSION_T:
 				/* these are similar */
 				if (!(to = pkg_malloc(sizeof(struct to_body)))) {
 					LM_ERR("out of pkg_memory\n");
@@ -1395,6 +1399,78 @@ static int sip_validate_hdrs(struct sip_msg *msg)
 					goto failed;
 				}
 				hf->parsed = to;
+				break;
+
+			/* multi-To style headers */
+			case HDR_PPI_T:
+			case HDR_PAI_T:
+			case HDR_DIVERSION_T:
+				/* these are similar */
+				if (!(to = pkg_malloc(sizeof(struct to_body)))) {
+					LM_ERR("out of pkg_memory\n");
+					goto failed;
+				}
+				parse_multi_to(hf->body.s,  hf->body.s + hf->body.len + 1, to);
+				if (to->error == PARSE_ERROR) {
+					LM_DBG("bad '%.*s' header\n",
+							hf->name.len, hf->name.s);
+					pkg_free(to);
+					goto failed;
+				}
+				hf->parsed = to;
+				if(hf->type==HDR_PPI_T || hf->type==HDR_PAI_T) {
+					/* check enforcements as per RFC3325 */
+					if (parse_uri( to->uri.s, to->uri.len, &uri)<0) {
+						LM_ERR("invalid uri [%.*s] in first [%.*s] value\n",
+							to->uri.len, to->uri.s,
+							hf->name.len, hf->name.s);
+						goto failed;
+					}
+					/* a second value ? */
+					if (to->next || hf->sibling) {
+						if (to->next) {
+							hf2 = hf;
+							to = to->next;
+						} else {
+							hf2 = hf->sibling;
+							if (!(to = pkg_malloc(sizeof(struct to_body)))) {
+								LM_ERR("out of pkg_memory\n");
+								goto failed;
+							}
+							parse_multi_to( hf2->body.s,
+								hf2->body.s + hf2->body.len +1, to);
+							if (to->error == PARSE_ERROR) {
+								LM_DBG("bad '%.*s' header\n",
+										hf2->name.len, hf2->name.s);
+								pkg_free(to);
+								goto failed;
+							}
+							hf2->parsed = to;
+						}
+						if (parse_uri( to->uri.s, to->uri.len, &uri2)<0) {
+							LM_ERR("invalid uri [%.*s] in second [%.*s] "
+								"value\n", to->uri.len, to->uri.s,
+								hf2->name.len, hf2->name.s);
+							goto failed;
+						}
+						if (!(((uri.type==SIP_URI_T || uri.type==SIPS_URI_T) &&
+						(uri2.type==TEL_URI_T || uri2.type==TELS_URI_T))
+						||
+						((uri2.type==SIP_URI_T || uri2.type==SIPS_URI_T) &&
+						(uri.type==TEL_URI_T || uri.type==TELS_URI_T))) ) {
+							LM_ERR("invalid uri type combination in "
+								"first [%d] and second [%d] hdrs [%.*s]\n",
+								uri.type, uri2.type,
+								hf2->name.len, hf2->name.s);
+							goto failed;
+						}
+						if (to->next || hf2->sibling) {
+							LM_ERR("too many values (max=2) for hdr [%.*s]\n",
+								hf2->name.len, hf2->name.s);
+							goto failed;
+						}
+					}
+				}
 				break;
 
 			case HDR_MAXFORWARDS_T:
@@ -1988,5 +2064,61 @@ static int change_reply_status_f(struct sip_msg* msg, char* str1, char* str2)
 	}
 
 	return 1;
+}
+
+
+static int hl_opt_fixup(void** param, int param_no)
+{
+	if (param_no==1)
+		/* name of the header */
+		return hname_fixup( param, param_no);
+
+	if (param_no==2)
+		/* value for the option */
+		return fixup_spve( param );
+
+	LM_BUG("too many parameters found\n");
+	return -1;
+}
+
+static int list_hdr_has_option(struct sip_msg *msg, char *s1, char *s2)
+{
+	str option;
+
+	/* evaluate the value for the option */
+	if (fixup_get_svalue( msg, (gparam_p)s2, &option)==-1) {
+		LM_ERR("failed to evaluate the value for the option\n");
+		return -1;
+	}
+
+	return list_hdr_has_val(msg, (gparam_p)s1, &option);
+}
+
+
+static int list_hdr_add_option(struct sip_msg *msg, char *s1, char *s2)
+{
+	str option;
+
+	/* evaluate the value for the option */
+	if (fixup_get_svalue( msg, (gparam_p)s2, &option)==-1) {
+		LM_ERR("failed to evaluate the value for the option\n");
+		return -1;
+	}
+
+	return list_hdr_add_val(msg, (gparam_p)s1, &option);
+}
+
+
+static int list_hdr_remove_option(struct sip_msg *msg, char *s1, char *s2)
+{
+	str option;
+
+	/* evaluate the value for the option */
+	if (fixup_get_svalue( msg, (gparam_p)s2, &option)==-1) {
+		LM_ERR("failed to evaluate the value for the option\n");
+		return -1;
+	}
+
+	return list_hdr_remove_val(msg, (gparam_p)s1, &option);
 }
 

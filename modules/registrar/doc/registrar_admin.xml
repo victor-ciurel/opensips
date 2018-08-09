@@ -4,7 +4,7 @@
 
 	<title>&adminguide;</title>
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>The module contains REGISTER processing logic.</para>
 	<section>
@@ -106,7 +106,7 @@
 	</section>
 
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -141,9 +141,9 @@
 		</para>
 	</section>
 	</section>
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
-	<section>
+	<section id="param_default_expires" xreflabel="default_expires">
 		<title><varname>default_expires</varname> (integer)</title>
 		<para>
 		If the processed message contains neither Expires
@@ -165,7 +165,7 @@ modparam("registrar", "default_expires", 1800)
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_min_expires" xreflabel="min_expires">
 		<title><varname>min_expires</varname> (integer)</title>
 		<para>
 		The minimum expires value of a Contact, values lower than this
@@ -186,7 +186,7 @@ modparam("registrar", "min_expires", 60)
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_max_expires" xreflabel="max_expires">
 		<title><varname>max_expires</varname> (integer)</title>
 		<para>
 		The maximum expires value of a Contact, values higher than this
@@ -208,7 +208,7 @@ modparam("registrar", "max_expires", 120)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_default_q" xreflabel="default_q">
 		<title><varname>default_q</varname> (integer)</title>
 		<para>
 		The parameter represents default q value for new contacts. Because
@@ -231,7 +231,7 @@ modparam("registrar", "default_q", 1000)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_tcp_persistent_flag" xreflabel="tcp_persistent_flag">
 		<title><varname>tcp_persistent_flag</varname> (integer)</title>
 		<para>
 		The parameter specifies the message flag to be used to control the
@@ -256,7 +256,7 @@ modparam("registrar", "tcp_persistent_flag", 7)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_realm_prefix" xreflabel="realm_prefix">
 		<title><varname>realm_prefix</varname> (string)</title>
 		<para>
 		 Prefix to be automatically strip from realm. As an alternative to
@@ -282,7 +282,7 @@ modparam("registrar", "realm_prefix", "sip.")
 	</section>
 
 
-	<section>
+	<section id="param_case_sensitive" xreflabel="case_sensitive">
 		<title><varname>case_sensitive</varname> (integer)</title>
 		<para>
 		If set to 1 then <acronym>AOR</acronym> comparison will be case
@@ -304,7 +304,7 @@ modparam("registrar", "case_sensitive", 0)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_received_avp" xreflabel="received_avp">
 		<title><varname>received_avp</varname> (str)</title>
 		<para>
 		Registrar will store the value of the AVP configured by this
@@ -334,7 +334,7 @@ modparam("registrar", "received_avp", "$avp(rcv)")
 		</example>
 	</section>
 
-	<section>
+	<section id="param_received_param" xreflabel="received_param">
 		<title><varname>received_param</varname> (string)</title>
 		<para>
 		The name of the parameter that will be appended to Contacts of
@@ -356,7 +356,7 @@ modparam("registrar", "received_param", "rcv")
 	</section>
 
 
-	<section>
+	<section id="param_max_contacts" xreflabel="max_contacts">
 		<title><varname>max_contacts</varname> (integer)</title>
 		<para>
 		The parameter can be used to limit the number of contacts per
@@ -384,7 +384,7 @@ modparam("registrar", "max_contacts", 10)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_retry_after" xreflabel="retry_after">
 		<title><varname>retry_after</varname> (integer)</title>
 		<para>
 		The registrar can generate 5xx reply to REGISTER in various
@@ -413,7 +413,7 @@ modparam("registrar", "retry_after", 30)
 		</example>
 	</section>
 
-	<section>
+	<section id="param_sock_hdr_name" xreflabel="sock_hdr_name">
 		<title><varname>sock_hdr_name</varname> (string)</title>
 		<para>
 		Header which contains a socket description (proto:IP:port) to override
@@ -438,16 +438,18 @@ modparam("registrar", "sock_hdr_name", "Sock-Info")
 		</example>
 	</section>
 
-	<section>
+	<section id="param_mcontact_avp" xreflabel="mcontact_avp">
 		<title><varname>mcontact_avp</varname> (string)</title>
 		<para>
-		AVP to store the modified binding that is set during cached
+		AVP to store the modified binding/contact that is set during cached
 		registrations scenario (when REGISTER is forwarded to another
-		registrar).  The AVP will be used to extract the imposed
-		expires from the 200ok reply.
+		registrar).  The AVP will be used to extract the "expires" value
+		returned in the 200 OK by the main registrar.
 		</para>
 		<para>
-		This makes sense only in cached registrations scenario.
+		This makes sense only in cached registrations scenario, where your
+		OpenSIPS is caching registrations before forwarding them to the main
+		registrar.
 		</para>
 		<para>
 		<emphasis>
@@ -458,12 +460,28 @@ modparam("registrar", "sock_hdr_name", "Sock-Info")
 		<title>Set <varname>mcontact_avp</varname> parameter</title>
 		<programlisting format="linespecific">
 ...
-modparam("registrar", "mcontact_avp", "$avp(register)")
+modparam("registrar", "mcontact_avp", "$avp(orig_ct)")
+...
+route {
+   ...
+   # before forwarding the REGISTER request, save the outgoing contact.
+   # Be SURE to do it after all the possible changes over the contact,
+   # like fix_nated_contact()
+   $avp(orig_ct) = $ct.fields(uri);
+   t_on_reply("do_save");
+   t_relay("udp:ip:port");
+   ...
+}
+...
+onreply_route[do_save] {
+	if ($rs=="200")
+		save("location");
+}
 ...
 		</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_attr_avp" xreflabel="attr_avp">
 		<title><varname>attr_avp</varname> (string)</title>
 		<para>
 		AVP to store specific additional information for each registration.
@@ -497,16 +515,16 @@ if (is_method("REGISTER")) {
 }
 ...
 lookup("location");
-t_on_branch("branch_route_1");
+t_on_branch("parallel_fork");
 ...
-branch_route[branch_route_1] {
+branch_route [parallel_fork] {
 	xlog("Attributes for branch $T_branch_idx: $(avp(attr)[$T_branch_idx])\n");
 }
 
 		</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_gruu_secret" xreflabel="gruu_secret">
 		<title><varname>gruu_secret</varname> (string)</title>
 		<para>
 		The string that will be used in XORing when generating
@@ -526,7 +544,7 @@ modparam("registrar", "gruu_secret", "top_secret")
 		</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_disable_gruu" xreflabel="disable_gruu">
 		<title><varname>disable_gruu</varname> (int)</title>
 		<para>
 			Globally disable GRUU handling
@@ -547,9 +565,9 @@ modparam("registrar", "disable_gruu", 0)
 	</section>
 	</section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
-	<section>
+	<section id="func_save" xreflabel="save()">
 		<title>
 		<function moreinfo="none">save(domain [,flags ,[aor]])</function>
 		</title>
@@ -605,7 +623,8 @@ modparam("registrar", "disable_gruu", 0)
 					flag can be used to set minimum register expiration time.
 					Values lower than this minimum will be automatically set
 					to the minimum. Value 0 disables the checking.
-					This parameter overrides the global "min_expires" module parameter.
+					This parameter overrides the global
+					<xref linkend="param_min_expires"/> module parameter.
 					</para>
 				</listitem>
 				<listitem>
@@ -613,7 +632,8 @@ modparam("registrar", "disable_gruu", 0)
 					flag can be used to set maximum register expiration time.
 					Values higher than this maximum will be automatically set
 					to the maximum. Value 0 disables the checking.
-					This parameter overrides the global "max_expires" module parameter.
+					This parameter overrides the global
+					<xref linkend="param_max_expires"/> module parameter.
 					</para>
 				</listitem>
 				<listitem>
@@ -675,6 +695,10 @@ modparam("registrar", "disable_gruu", 0)
 		<para>
 		This function can be used from REQUEST_ROUTE and ONREPLY_ROUTE.
 		</para>
+		<para>
+		If you plan to use the <quote>save()</quote> function in reply route,
+		please refer to <xref linkend="param_mcontact_avp"/> module parameter.
+		</para>
 		<example>
 		<title><function>save</function> usage</title>
 		<programlisting format="linespecific">
@@ -696,9 +720,9 @@ save("location","mr", "$avp(aor)");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_remove" xreflabel="remove()">
 		<title>
-		<function moreinfo="none">remove(domain, AOR[, [contact], ip])</function>
+		<function moreinfo="none">remove(domain, AOR[, [contact][, [next_hop][, [sip_instance]]]])</function>
 		</title>
 		<para>
 		Explicitly remove contacts behind a given address-of-record.
@@ -707,42 +731,66 @@ save("location","mr", "$avp(aor)");
 		<itemizedlist>
 		<listitem>
 			<para>
-			<emphasis>domain</emphasis> - Logical domain within registrar.
-			If database is used then this must be name of the table which
-			stores the contacts;
+			<emphasis>domain</emphasis> - (string) - Logical domain within the registrar.
+			If a database is used, then this must be name of the table which
+			stores the contacts.
 			</para>
 		</listitem>
 		<listitem>
 			<para>
-			<emphasis>AOR</emphasis> - address-of-record to be searched (SIP URI);
+			<emphasis>AOR</emphasis> - address-of-record to be searched (SIP URI)
 			</para>
 		</listitem>
 		<listitem>
 			<para>
-				<emphasis>contact (optional)</emphasis> - sip uri for the contact
-				to be removed;
+				<emphasis>contact (optional filter)</emphasis> - SIP URI filter
+				for the contact to be removed. Only the "username", "hostname"
+				and "port" parts of the URI are relevant for the matching.
+				Hostnames are resolved before matching.
 			</para>
 		</listitem>
 		<listitem>
 			<para>
-				<emphasis>ip (optional)</emphasis> - source IP/hostname of the endpoint that
-				registered this contact; it matches the <emphasis>PATH</emphasis> header if the registration
-				had one, the ip from where the registration request came from if the request came
-				from behind nat(if nathelper module used) or the actual ip of the contact;
+				<emphasis>next_hop (optional filter)</emphasis> - the next
+				SIP IP address/hostname on the way back to this contact. See
+				the section below for details on how the next hop is
+				computed. Hostnames are resolved before matching.
+			</para>
+		</listitem>
+		<listitem>
+			<para>
+				<emphasis>sip_instance (optional filter)</emphasis> - string
+				or pvar containing a "+sip.instance" value to be used for
+				filtering purposes.
 			</para>
 		</listitem>
 		</itemizedlist>
 		<para>
-			<emphasis role='bold'>IMPORTANT: </emphasis>Contact parameter can be used without
-			defining the ip parameter, that is the function can have 3 arguments. On the other
-			side, if only the ip parameter is desired to be used, without the contact, the third
-			parameter has to be set to NULL( see more in the examples).
-		</para>
-		<para>
-			<emphasis role='bold'>IMPORTANT#2: </emphasis> If both contact and ip are defined,
-			only the contact that will match both the contact and the IP will be removed,
-			that is a logical AND between the two. If none defined, all the contacts from
-			the specfied AOR shall be removed.
+			<emphasis role='bold'>IMPORTANT: </emphasis>the IP address of each
+			contact (for matching purposes) is computed as follows:
+			<itemizedlist>
+			<listitem>
+				<para>
+					a. if a Path header is present, the hostname part of the
+					Path URI will be resolved as the contact's IP address.
+				</para>
+			</listitem>
+			<listitem>
+				<para>
+					b. otherwise, if by using nathelper, the "Received" value
+					(source IP of the next hop) is set for a contact, this
+					becomes the chosen hostname to be resolved as the contact's
+					IP address.
+				</para>
+			</listitem>
+			<listitem>
+				<para>
+					c. otherwise, the "hostname" part of the Contact header
+					field URI is chosen to be resolved as the contact's IP
+					address.
+				</para>
+			</listitem>
+			</itemizedlist>
 		</para>
 		<para>
 		This function can be used from REQUEST_ROUTE and ONREPLY_ROUTE.
@@ -760,17 +808,18 @@ remove("location", "sip:bob@atlanta.com", "sip:bob@46.50.64.78");
 # remove all bob's phones which are behind "50.60.50.60"
 # note that "contact" parameter has to be specified with NULL value even though not used
 $var(next_hop) = "50.60.50.60"
-remove("location", "sip:bob@atlanta.com",, "$var(next_hop)");
+remove("location", "sip:bob@atlanta.com", , "$var(next_hop)");
 ...
-# remove bob's phone with the contact "sip:bob@46.50.64.78" that is behind "50.60.50.60"
-$var(next_hop) = "50.60.50.60"
+# remove bob's phone with contact "sip:bob@46.50.64.78" that is behind "50.60.50.60"
 remove("location", "sip:bob@atlanta.com", "sip:bob@46.50.64.78", "50.60.50.60");
 ...
+# remove all contacts behind bob's mobile device X
+remove("location", "sip:bob@atlanta.com", , , "&lt;urn:uuid:e5e68d40-f08a-4600-b82e-ff4d5d8c1a8f&gt;")
 </programlisting>
 		</example>
 	</section>
 
-	<section>
+	<section id="func_lookup" xreflabel="lookup()">
 		<title>
 		<function moreinfo="none">lookup(domain [, flags [, aor]])</function>
 		</title>
@@ -811,6 +860,17 @@ remove("location", "sip:bob@atlanta.com", "sip:bob@46.50.64.78", "50.60.50.60");
 				unprocessed.
 				</para>
 			</listitem>
+
+			<listitem>
+				<para>
+				<emphasis>'B' (to Branches only)</emphasis> - this flags forces
+				all found contacts to be uploaded only as branches (in the
+				destination set) and not at all in the RURI of the
+				current message. With this option, the lookup() can be also 
+				used in the context of a SIP reply.
+				</para>
+			</listitem>
+
 			<listitem>
 				<para>
 				<emphasis>'r' (bRanch lookup)</emphasis> - this flag enables
@@ -856,6 +916,53 @@ remove("location", "sip:bob@atlanta.com", "sip:bob@46.50.64.78", "50.60.50.60");
 				<para>
 				<emphasis>'e' (Use extended regexp)</emphasis> - this flag
 				enables using of extended regexp format for the 'u' flag.
+				</para>
+			</listitem>
+			<listitem>
+				<para>
+				<emphasis>'g' (Global lookup)</emphasis> - this flag
+				is only relevant with federated user location clustering. If
+				set, the lookup() function will not only perform the classic
+				in-memory "search-AoR-and-push-branches" operation, but will
+				also perform a metadata lookup and append an additional branch
+				for each returned result. The "in-memory branches" correspond
+				to local contacts (current location), while the "metadata
+				branches" correspond to contacts available on one or more of
+				the remaining locations of the platform.
+				</para>
+				<para>
+				The AoR metadata consists of the minimally required information
+				in order for one of the VoIP platform's locations (data
+				centers) to advertise the presence of a locally registered AoR
+				for the global platform. Specifically, this consists of two
+				pieces of information:
+				<itemizedlist>
+				<listitem>
+					<para>
+						the AoR (e.g. "vladimir@federation-cluster")
+					</para>
+				</listitem>
+				<listitem>
+					<para>
+						the home IP (e.g. "10.0.0.223")
+					</para>
+				</listitem>
+				</itemizedlist>
+				</para>
+			</listitem>
+			<listitem>
+				<para>
+				<emphasis>'yXXXXX' (Max pinging latency)</emphasis> - maximally
+				accepted contact pinging latency (microseconds). Contacts of an
+				AoR with a higher latency will be discarded during the lookup.
+				</para>
+			</listitem>
+			<listitem>
+				<para>
+				<emphasis>'Y' (Sort by pinging latency)</emphasis> - contacts
+				will be picked in ascending order of their last successful
+				pinging latency (fastest ping -> slowest ping). This flag may
+				work together with the "y" flag.
 				</para>
 			</listitem>
 			</itemizedlist>
@@ -917,7 +1024,7 @@ switch ($retcode) {
 		</example>
 	</section>
 
-	<section>
+	<section id="func_is_registered" xreflabel="is_registered()">
 		<title>
 		<function moreinfo="none">is_registered(domain ,[AOR])</function>
 		</title>
@@ -971,7 +1078,7 @@ if (is_registered("location","$fu")) {
 	</section>
 
 
-	<section>
+	<section id="func_is_contact_registered" xreflabel="is_contact_registered()">
 		<title>
 		<function moreinfo="none">is_contact_registered(domain ,[AOR],[contact],[callid])</function>
 		</title>
@@ -1040,7 +1147,7 @@ if(is_method("INVITE")) {
 		</example>
 	</section>
 
-	<section>
+	<section id="func_is_ip_registered" xreflabel="is_ip_registered()">
 		<title>
 		<function moreinfo="none">is_ip_registered(domain ,[AOR],IPvar)</function>
 		</title>
@@ -1098,7 +1205,7 @@ if (is_method("REGISTER")) {
 
 
 
-	<section>
+	<section id="func_add_sock_hdr" xreflabel="add_sock_hdr()">
 		<title>
 		<function moreinfo="none">add_sock_hdr(hdr_name)</function>
 		</title>
@@ -1134,31 +1241,31 @@ add_sock_hdr("Sock-Info");
 
 <section>
 	<title>Exported Statistics</title>
-	<section>
+	<section id="max_expires_stat" xreflabel="max_expires_stat">
 		<title><varname>max_expires</varname></title>
 		<para>
 		Value of max_expires parameter.
 		</para>
 	</section>
-	<section>
+	<section id="max_contacts_stat" xreflabel="max_contacts_stat">
 		<title><varname>max_contacts</varname></title>
 		<para>
 		The value of max_contacts parameter.
 		</para>
 	</section>
-	<section>
+	<section id="defaults_expires" xreflabel="defaults_expires">
 		<title><varname>defaults_expires</varname></title>
 		<para>
 		The value of default_expires parameter.
 		</para>
 	</section>
-	<section>
+	<section id="accepted_regs" xreflabel="accepted_regs">
 		<title><varname>accepted_regs</varname></title>
 		<para>
 		Number of accepted registrations.
 		</para>
 	</section>
-	<section>
+	<section id="rejected_regs" xreflabel="rejected_regs">
 		<title><varname>rejected_regs</varname></title>
 		<para>
 		Number of rejected registrations.

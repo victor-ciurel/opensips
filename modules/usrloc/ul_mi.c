@@ -44,7 +44,8 @@
 #include "utime.h"
 #include "ul_mod.h"
 #include "usrloc.h"
-
+#include "ureplication.h"
+#include "kv_store.h"
 
 
 #define MI_UL_CSEQ 1
@@ -52,8 +53,7 @@ static str mi_ul_cid = str_init("dfjrewr12386fd6-343@opensips.mi");
 static str mi_ul_ua  = str_init("OpenSIPS MI Server");
 rw_lock_t *sync_lock = 0;
 
-
-
+extern int mi_dump_kv_store;
 
 /************************ helper functions ****************************/
 
@@ -95,7 +95,7 @@ static inline int mi_add_aor_node(struct mi_node *parent, urecord_t* r,
 	struct mi_node *node;
 	struct mi_attr *attr;
 	ucontact_t* c;
-	str st;
+	str st, kv_buf;
 	char *p;
 	int len;
 
@@ -236,7 +236,38 @@ static inline int mi_add_aor_node(struct mi_node *parent, urecord_t* r,
 				return -1;
 		}
 
+		/* ping latency */
+		if (c->sipping_latency > 0) {
+			p = int2str((unsigned long)c->sipping_latency, &len);
+			node = add_mi_node_child(cnode, MI_DUP_VALUE,
+			                         MI_SSTR("Ping-Latency"), p, len);
+			if (node==0)
+				return -1;
+		}
+
+		if (mi_dump_kv_store) {
+			kv_buf = store_serialize(c->kv_storage);
+			if (!ZSTR(kv_buf) && !add_mi_node_child(cnode, MI_DUP_VALUE,
+			                      MI_SSTR("KV-Store"), kv_buf.s, kv_buf.len)) {
+				store_free_buffer(&kv_buf);
+				return -1;
+			}
+
+			store_free_buffer(&kv_buf);
+		}
+
 	} /* for */
+
+	if (mi_dump_kv_store) {
+		kv_buf = store_serialize(r->kv_storage);
+		if (!ZSTR(kv_buf) && !add_mi_node_child(anode, MI_DUP_VALUE,
+		                          MI_SSTR("KV-Store"), kv_buf.s, kv_buf.len)) {
+			store_free_buffer(&kv_buf);
+			return -1;
+		}
+
+		store_free_buffer(&kv_buf);
+	}
 
 	return 0;
 }
@@ -385,14 +416,13 @@ struct mi_root* mi_usrloc_dump(struct mi_root *cmd, void *param)
 		dom = dl->d;
 		/* add some attributes to the domain node */
 		p= int2str((unsigned long)dom->size, &len);
-		attr = add_mi_attr( node, MI_DUP_VALUE, "table", 5, p, len);
+		attr = add_mi_attr( node, MI_DUP_VALUE, "hash_size", 9, p, len);
 		if (attr==0)
 			goto error;
 
 		/* add the entries per hash */
 		for(i=0,n=0; i<dom->size; i++) {
 			lock_ulslot( dom, i);
-
 
 			for ( map_first( dom->table[i].records, &it);
 				iterator_is_valid(&it);
@@ -415,12 +445,6 @@ struct mi_root* mi_usrloc_dump(struct mi_root *cmd, void *param)
 
 			unlock_ulslot( dom, i);
 		}
-
-		/* add more attributes to the domain node */
-		p= int2str((unsigned long)n, &len);
-		attr = add_mi_attr( node, MI_DUP_VALUE, "records", 7, p, len);
-		if (attr==0)
-			goto error;
 
 	}
 
@@ -718,7 +742,7 @@ struct mi_root* mi_usrloc_sync(struct mi_root *cmd, void *param)
 	struct mi_node *node;
 	udomain_t *dom;
 
-	if (db_mode == DB_ONLY || db_mode == NO_DB)
+	if (sql_wmode == SQL_NO_WRITE)
 		return init_mi_tree( 200, MI_SSTR("Contacts already synced"));
 
 	node = cmd->node.kids;
@@ -744,4 +768,15 @@ struct mi_root* mi_usrloc_sync(struct mi_root *cmd, void *param)
 			lock_stop_write(sync_lock);
 		return ret;
 	}
+}
+
+struct mi_root* mi_usrloc_cl_sync(struct mi_root *cmd, void *param)
+{
+	if (!location_cluster)
+		return init_mi_tree(400, MI_SSTR("Clustering not enabled"));
+
+	if (clusterer_api.request_sync(&contact_repl_cap, location_cluster, 1) < 0)
+		return init_mi_tree(400, MI_SSTR("Failed to send sync request"));
+	else
+		return init_mi_tree(200, MI_SSTR(MI_OK));
 }

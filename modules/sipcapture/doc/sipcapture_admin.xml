@@ -4,7 +4,7 @@
 
 	<title>&adminguide;</title>
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 		Offer a possibility to store incoming/outgoing SIP messages in database.
@@ -27,7 +27,7 @@
 			Homer encapsulation protocl mode (HEP v1/2/3). With version 2.2
 			comes the new HEPv3 support using the proto _hep module. Also
 			header manipulation support for HEPv3 has been added. See
-			<xref linkend="hep_set_id"/> for more details. If you want more
+			<xref linkend="func_hep_set"/> for more details. If you want more
 			information about hep protocol check this
 			<ulink url="https://github.com/sipcapture/HEP/blob/master/docs/HEP3_rev11.pdf">
 			link</ulink>.
@@ -46,7 +46,7 @@
 	opensipsctl fifo sip_capture off
 	</para>
 	</section>
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -85,7 +85,7 @@
 	</section>
 	<section>
 	<title>Parameters</title>
-	<section>
+	<section id="param_db_url" xreflabel="db_url">
 		<title><varname>db_url</varname> (str)</title>
 		<para>
 		Database URL.
@@ -104,7 +104,7 @@ modparam("sipcapture", "db_url", "mysql://user:passwd@host/dbname")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_table_name" xreflabel="table_name">
 		<title><varname>table_name</varname> (str)</title>
 		<para>
 			Name of the table's name where to store the SIP messages. Since
@@ -130,7 +130,7 @@ modparam("sipcapture", "table_name", "homer_%m_%d")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_rtcp_table_name" xreflabel="rtcp_table_name">
 		<title><varname>rtcp_table_name</varname> (str)</title>
 		<para>
 			Name of the table's name where to store packets captured
@@ -158,7 +158,7 @@ modparam("sipcapture", "rtcp_table_name", "homer_%m_%d_%H")
 		</example>
 	</section>
 
-	<section>
+	<section id="param_capture_on" xreflabel="capture_on">
 		<title><varname>capture_on</varname> (integer)</title>
 		<para>
 		Parameter to enable/disable capture globaly (on(1)/off(0))
@@ -177,7 +177,7 @@ modparam("sipcapture", "capture_on", 1)
 </programlisting>
 		</example>
 	</section>
-        <section>
+        <section id="param_hep_capture_on" xreflabel="hep_capture_on">
                 <title><varname>hep_capture_on</varname> (integer)</title>
                 <para>
                 Parameter to enable/disable capture of HEP (on(1)/off(0))
@@ -196,7 +196,7 @@ modparam("sipcapture", "hep_capture_on", 1)
 </programlisting>
                 </example>
         </section>
-        <section>
+        <section id="param_max_async_queries" xreflabel="max_async_queries">
                 <title><varname>max_async_queries</varname> (integer)</title>
                 <para>
 				Parameter to set the maximum number of 'INSERT' queries of captured
@@ -221,7 +221,7 @@ modparam("sipcapture", "max_async_queries", 3)
                 </example>
         </section>
 
-        <section>
+        <section id="param_raw_ipip_capture_on" xreflabel="raw_ipip_capture_on">
                 <title><varname>raw_ipip_capture_on</varname> (integer)</title>
                 <para>
                 Parameter to enable/disable IPIP capturing (on(1)/off(0))
@@ -240,7 +240,7 @@ modparam("sipcapture", "raw_ipip_capture_on", 1)
 </programlisting>
                 </example>
         </section>
-        <section>
+        <section id="param_raw_moni_capture_on" xreflabel="raw_moni_capture_on">
                 <title><varname>raw_moni_capture_on</varname> (integer)</title>
                 <para>
                 Parameter to enable/disable monitoring/mirroring port capturing (on(1)/off(0))
@@ -261,7 +261,7 @@ modparam("sipcapture", "raw_moni_capture_on", 1)
 		</programlisting>
                 </example>
         </section>
-	<section>
+	<section id="param_raw_socket_listen" xreflabel="raw_socket_listen">
                 <title><varname>raw_socket_listen</varname> (string)</title>
                 <para>
                 Parameter indicate an listen IP address of RAW socket for IPIP capturing.
@@ -296,7 +296,7 @@ modparam("sipcapture", "raw_socket_listen", "10.0.0.1:5060")
 </programlisting>
                 </example>
         </section>
-       <section>
+       <section id="param_raw_interface" xreflabel="raw_interface">
                 <title><varname>raw_interface</varname> (string)</title>
 		<para>
 		Name of the interface to bind on the raw socket.
@@ -315,7 +315,7 @@ modparam("sipcapture", "raw_interface", "eth0")
 </programlisting>
                 </example>
         </section>
-        <section>
+        <section id="param_raw_sock_children" xreflabel="raw_sock_children">
                 <title><varname>raw_sock_children</varname> (integer)</title>
                 <para>
 		Parameter define how much children must be created to listen the raw socket.
@@ -334,7 +334,7 @@ modparam("sipcapture", "raw_sock_children", 6)
 </programlisting>
                 </example>
         </section>
-        <section>
+        <section id="param_promiscuous_on" xreflabel="promiscuous_on">
                 <title><varname>promiscuous_on</varname> (integer)</title>
                 <para>
                 Parameter to enable/disable promiscuous mode on the raw socket.
@@ -354,7 +354,7 @@ modparam("sipcapture", "promiscuous_on", 1)
 </programlisting>
                 </example>
         </section>
-        <section>
+        <section id="param_raw_moni_bpf_on" xreflabel="raw_moni_bpf_on">
                 <title><varname>raw_moni_bpf_on</varname> (integer)</title>
                 <para>
                 Activate Linux Socket Filter (LSF based on BPF) on the mirroring interface.
@@ -375,7 +375,7 @@ modparam("sipcapture", "raw_moni_bpf_on", 1)
 </programlisting>
                 </example>
         </section>
-	<section>
+	<section id="param_capture_node" xreflabel="capture_node">
 		<title><varname>capture_node</varname> (str)</title>
 		<para>
 		Name of the capture node.
@@ -394,7 +394,7 @@ modparam("sipcapture", "capture_node", "homer03")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_hep_route" xreflabel="hep_route">
 		<title><varname>hep_route</varname> (string)</title>
 		<para>
 			Specifies what path your hep messages should take. Possible
@@ -438,10 +438,10 @@ route[my_hep_route] {
 
 </section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
 
-		<section>
+		<section id="func_sip_capture" xreflabel="sip_capture()">
 		<title>
 			<function moreinfo="none">sip_capture([table_name][, [custom_field1][, [custom_field2][, [custom_field3]]]])</function>
 		</title>
@@ -485,7 +485,7 @@ if (is_method("REGISTER"))
 
 		</section>
 
-		<section>
+		<section id="func_report_capture" xreflabel="report_capture()">
 		<title>
 			<function moreinfo="none">report_capture([table_name],correlation_id[,proto_type])</function>
 		</title>
@@ -547,7 +547,7 @@ if (is_method("REGISTER"))
 
 
 
-		<section id="hep_set_id">
+		<section id="func_hep_set" xreflabel="hep_set()">
 		<title>
 			<function moreinfo="none">hep_set([data_type,] chunk_id, [vendor_id,] chunk_data)</function>
 		</title>
@@ -746,7 +746,7 @@ hep_set("inet4-addr", "32"/*chk id*/, "3"/*opensips vendor*/, "192.168.5.14")
 
 		</section>
 
-		<section>
+		<section id="func_hep_get" xreflabel="hep_get()">
 		<title>
 			<function moreinfo="none">hep_get([data_type,] chunk_id, vendor_id_pv, chunk_data_pv)</function>
 		</title>
@@ -760,11 +760,11 @@ hep_set("inet4-addr", "32"/*chk id*/, "3"/*opensips vendor*/, "192.168.5.14")
 		<itemizedlist>
 		<listitem>
 		<para><emphasis>data_type(string)</emphasis> - same meaning as in
-			<xref linkend="hep_set_id"/>; can miss if it's a generic chunk</para>
+			<xref linkend="func_hep_set"/>; can miss if it's a generic chunk</para>
 		</listitem>
 		<listitem>
 		<para><emphasis>chunk_id</emphasis> - same meaning as in
-			<xref linkend="hep_set_id"/></para>
+			<xref linkend="func_hep_set"/></para>
 		</listitem>
 		<listitem>
 			<para><emphasis>vendor_id_pv(writable pvar)</emphasis> - will hold the vendor id(int value)
@@ -778,7 +778,7 @@ hep_set("inet4-addr", "32"/*chk id*/, "3"/*opensips vendor*/, "192.168.5.14")
 				<para>0x0001 - proto_family(string) - AF_INET/AF_INET6</para>
 			</listitem>
 			<listitem>
-				<para>0x0002  proto_id(string) - see <xref linkend="hep_set_id"/> for possible values</para>
+				<para>0x0002  proto_id(string) - see <xref linkend="func_hep_set"/> for possible values</para>
 			</listitem>
 			<listitem>
 				<para>0x0003/0x0004/0x0005/0x0006  src/dst_ip(string) - ip addresses in human readable format</para>
@@ -787,7 +787,7 @@ hep_set("inet4-addr", "32"/*chk id*/, "3"/*opensips vendor*/, "192.168.5.14")
 				<para>0x0009  timestamp(string) - time and date in human readable format</para>
 			</listitem>
 			<listitem>
-				<para>0x000B  proto_type(string) - see <xref linkend="hep_set_id"/> for possible values</para>
+				<para>0x000B  proto_type(string) - see <xref linkend="func_hep_set"/> for possible values</para>
 			</listitem>
 			</itemizedlist>
 		</listitem>
@@ -808,7 +808,7 @@ hep_set("uint32", "31"/*chk id*/, "$var(vid)", "$var(data)")
 
 		</section>
 
-		<section>
+		<section id="func_hep_del" xreflabel="hep_del()">
 		<title>
 			<function moreinfo="none">hep_del(chunk_id)</function>
 		</title>
@@ -822,7 +822,7 @@ hep_set("uint32", "31"/*chk id*/, "$var(vid)", "$var(data)")
 		<itemizedlist>
 		<listitem>
 			<para><emphasis>chunk_id</emphasis> - same meaning as the <emphasis>chunk_id</emphasis> in
-				<xref linkend="hep_set_id"/>.
+				<xref linkend="func_hep_set"/>.
 			</para>
 		</listitem>
 		</itemizedlist>
@@ -839,7 +839,7 @@ hep_del("25"); /* removes chunk with chunk id 25 */
 		</section>
 
 
-		<section>
+		<section id="func_hep_relay" xreflabel="hep_relay()">
 		<title>
 			<function moreinfo="none">hep_relay()</function>
 		</title>
@@ -869,7 +869,7 @@ if (!hep_relay()) {
 
 		</section>
 
-		<section>
+		<section id="func_hep_resume_sip" xreflabel="hep_resume_sip()">
 		<title>
 			<function moreinfo="none">hep_resume_sip()</function>
 		</title>
@@ -908,7 +908,7 @@ route[my_hep_route] {
 	<section>
 	<title>Exported Async Functions</title>
 
-	<section>
+	<section id="afunc_sip_capture" xreflabel="sip_capture()">
 	<title>
 		<function moreinfo="none">sip_capture()</function>
 	</title>
@@ -938,12 +938,12 @@ route[capture_resume] {
 </section>
 
 
-	<section>
-	<title>Exported PseudoVariables</title>
+	<section id="exported_pseudo_variables">
+	<title>Exported Pseudo-Variables</title>
 
-	<section>
+	<section id="pv_hep_net" xreflabel="$hep_net">
 	<title>
-		<function moreinfo="none">hep_net</function>
+		<function moreinfo="none">$hep_net</function>
 	</title>
 	<para>Holds layer 3 and 4 information(IP addresses and ports) about
 		the node from where the hep message was received. The variable is
@@ -994,9 +994,9 @@ route[capture_resume] {
 	</example>
 	</section>
 
-	<section>
+	<section id="pv_HEPVERSION" xreflabel="$HEPVERSION">
 	<title>
-		<function moreinfo="none">HEPVERSION - string,int</function>
+		<function moreinfo="none">HEPVERSION (string, int)</function>
 	</title>
 	<para>
 		Holds the version of the hep packet received on the interface.
@@ -1044,13 +1044,13 @@ route[capture_resume] {
 		</para>
 		<para>Parameters: </para>
 		<itemizedlist>
-			<listitem><para>capture_mode : turns on/off SIP message capturing.
-			Possible values are:</para>
+			<listitem><para><emphasis>capture_mode</emphasis> (optional) - 
+			turns on/off SIP message capturing. Possible values are:</para>
 			<itemizedlist>
 				<listitem><para> on </para></listitem>
 				<listitem><para> off </para></listitem>
 			</itemizedlist>
-			<para>The parameter is optional - if missing, the command will
+			<para>if the parameter is missing, the command will
 			return the status of the SIP message capturing (as string
 			<quote>on</quote> or <quote>off</quote> ) without changing
 			anything.</para>
@@ -1061,9 +1061,7 @@ route[capture_resume] {
 		MI FIFO Command Format:
 		</para>
 		<programlisting  format="linespecific">
-		:sip_capture:_reply_fifo_file_
-		capture_mode
-		_empty_line_
+		opensipsctl fifo sip_capture off
 		</programlisting>
 	</section>
 	</section>

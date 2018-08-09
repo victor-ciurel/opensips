@@ -298,7 +298,7 @@ static void ws_conn_clean(struct tcp_connection* c)
 
 	}
 
-	tls_conn_clean(c);
+	tls_conn_clean(c, &tls_mgm_api);
 }
 
 
@@ -609,6 +609,7 @@ static int wss_raw_writev(struct tcp_connection *c, int fd,
 #endif
 
 #ifndef TLS_DONT_WRITE_FRAGMENTS
+	lock_get(&c->write_lock);
 	for (i = 0; i < iovcnt; i++) {
 		n = tls_blocking_write(c, fd, iov[i].iov_base, iov[i].iov_len, &tls_mgm_api);
 		if (n < 0) {
@@ -631,11 +632,12 @@ static int wss_raw_writev(struct tcp_connection *c, int fd,
 		memcpy(buf + n, iov[i].iov_base, iov[i].iov_len);
 		n += iov[i].iov_len;
 	}
+	lock_get(&c->write_lock);
 	n = tls_blocking_write(c, fd, buf, n, &tls_mgm_api);
-
 #endif /* TLS_DONT_WRITE_FRAGMENTS */
 
 end:
+	lock_release(&c->write_lock);
 	return ret;
 }
 

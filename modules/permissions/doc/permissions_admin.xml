@@ -4,7 +4,7 @@
 
 	<title>&adminguide;</title>
 
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<section id="sec-call-routing">
 		<title>Call Routing</title>
@@ -183,7 +183,7 @@
 	</section>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -214,9 +214,9 @@
 	</section>
 	</section>
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
-	<section>
+	<section id="param_default_allow_file" xreflabel="default_allow_file">
 		<title><varname>default_allow_file</varname> (string)</title>
 		<para>
 		Default allow file used by functions without parameters. If you
@@ -237,7 +237,7 @@ modparam("permissions", "default_allow_file", "/etc/permissions.allow")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_default_deny_file" xreflabel="default_deny_file">
 		<title><varname>default_deny_file</varname> (string)</title>
 		<para>
 		Default file containing deny rules. The file is used by functions
@@ -258,7 +258,7 @@ modparam("permissions", "default_deny_file", "/etc/permissions.deny")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_check_all_branches" xreflabel="check_all_branches">
 		<title><varname>check_all_branches</varname> (integer)</title>
 		<para>
 		If set then allow_routing functions will check Request-URI of all
@@ -285,7 +285,7 @@ modparam("permissions", "check_all_branches", 0)
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_allow_suffix" xreflabel="allow_suffix">
 		<title><varname>allow_suffix</varname> (string)</title>
 		<para>
 		Suffix to be appended to basename to create filename of the allow
@@ -312,7 +312,7 @@ modparam("permissions", "allow_suffix", ".allow")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_deny_suffix" xreflabel="deny_suffix">
 		<title><varname>deny_suffix</varname> (string)</title>
 		<para>
 		Suffix to be appended to basename to create filename of the deny file
@@ -339,12 +339,21 @@ modparam("permissions", "deny_suffix", ".deny")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_db_url" xreflabel="db_url">
 		<title><varname>db_url</varname> (string)</title>
 		<para>
-		This is URL of the database to be used.
-		Since version 2.2, this url represents the db_url for the <quote>default</quote>
-		partition.
+		This is URL of the database to be used for loading the date related to
+		IP-based checking (<quote>address</quote> table).
+		</para>
+		<para>
+		This parameter is optional and it is needed only if you use
+		functions related to IP-based checking. If you do so, you need to
+		explicitly set this parameter (it is not covered by 
+		<quote>db_default_url</quote>)
+		</para>
+		<para>
+		Since version 2.2, this URL represents the db_url for the 
+		<quote>default</quote> partition.
 		</para>
 		<para>
 		<emphasis>
@@ -360,7 +369,7 @@ modparam("permissions", "db_url", "&exampledb;")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_address_table" xreflabel="address_table">
 		<title><varname>address_table</varname> (string)</title>
 		<para>
 		Name of database table containing matching rules used by
@@ -382,7 +391,7 @@ modparam("permissions", "address_table", "pbx")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_partition" xreflabel="partition">
 		<title><varname>partition</varname> (string)</title>
 		<para>
 			Create a partition containg an url and a table name. Partitions
@@ -407,7 +416,7 @@ modparam("permissions", "partition", "my_part: db_url=<quote>some_url</quote>; t
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_grp_col" xreflabel="grp_col">
 		<title><varname>grp_col</varname> (string)</title>
 		<para>
 		Name of address table column containing group
@@ -427,7 +436,7 @@ modparam("permissions", "grp_col", "group_id")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_ip_col" xreflabel="ip_col">
 		<title><varname>ip_col</varname> (string)</title>
 		<para>
 		Name of address table column containing IP address
@@ -447,11 +456,12 @@ modparam("permissions", "ip_col", "ipess")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_mask_col" xreflabel="mask_col">
 		<title><varname>mask_col</varname> (string)</title>
 		<para>
 		Name of address table column containing network mask of
-		the address.  Possible values are 0-32.
+		the address.  Possible values are 0-128. It should be up to 32 if 
+		the IP is v4 and up to 128 if the IP is v6.
 		</para>
 		<para>
 		<emphasis>
@@ -467,7 +477,7 @@ modparam("permissions", "mask_col", "subnet_length")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_port_col" xreflabel="port_col">
 		<title><varname>port_col</varname> (string)</title>
 		<para>
 		Name of address table column containing port
@@ -489,7 +499,7 @@ modparam("permissions", "port_col", "prt")
 	</section>
 
 
-	<section>
+	<section id="param_proto_col" xreflabel="proto_col">
 		<title><varname>proto_col</varname> (string)</title>
 		<para>
 		Name of address table column containing transport
@@ -515,7 +525,7 @@ modparam("permissions", "proto_col", "transport")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_pattern_col" xreflabel="pattern_col">
 		<title><varname>pattern_col</varname> (string)</title>
 		<para>
 		Name of address table column containinga a pattern (a shell wildcard
@@ -538,7 +548,7 @@ modparam("permissions", "pattern_col", "wildcard_col")
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_info_col" xreflabel="info_col">
 		<title><varname>info_col</varname> (string)</title>
 		<para>
 		Name of address table column containing a string
@@ -563,9 +573,9 @@ modparam("permissions", "info_col", "info_col")
 	</section>
 	</section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
-	<section>
+	<section id="func_allow_routing" xreflabel="allow_routing()">
 		<title>
 		<function moreinfo="none">allow_routing()</function>
 		</title>
@@ -590,7 +600,7 @@ if (allow_routing()) {
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_allow_routing_1" xreflabel="allow_routing()">
 		<title>
 		<function moreinfo="none">allow_routing(basename)</function>
 		</title>
@@ -628,7 +638,7 @@ if (allow_routing("basename")) {
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_allow_routing_2" xreflabel="allow_routing()">
 		<title>
 		<function moreinfo="none">allow_routing(allow_file,deny_file)</function>
 		</title>
@@ -672,7 +682,7 @@ if (allow_routing("rules.allow", "rules.deny")) {
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_allow_register" xreflabel="allow_register()">
 		<title>
 		<function moreinfo="none">allow_register(basename)</function>
 		</title>
@@ -715,7 +725,7 @@ if ($rm=="REGISTER") {
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_allow_register_2" xreflabel="allow_register()">
 		<title>
 		<function moreinfo="none">allow_register(allow_file, deny_file)</function>
 		</title>
@@ -764,7 +774,7 @@ if ($rm=="REGISTER") {
 </programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="func_allow_uri" xreflabel="allow_uri()">
 		<title>
 		<function moreinfo="none">allow_uri(basename, pvar)</function>
 		</title>
@@ -811,7 +821,7 @@ if (allow_uri("basename", "$avp(uri)") {  // Check URI stored in $avp(uri)
 		</example>
 	</section>
 
-	<section>
+	<section id="func_check_address" xreflabel="check_address()">
 		<title>
 		<function moreinfo="none">check_address([partition:]group_id, ip,
 		port, proto [, context_info [, pattern]])</function>
@@ -945,7 +955,7 @@ if (check_address("4","$si","5700","$proto","", "texttest")) {
 		</example>
 	</section>
 
-	<section>
+	<section id="func_check_source_address" xreflabel="check_source_address()">
 		<title>
 		<function moreinfo="none">check_source_address(group_id [, context_info [, pattern]])</function>
 		</title>
@@ -971,7 +981,7 @@ if (check_source_address("$avp(partition):4","$avp(ctx)")) {
 		</example>
 	</section>
 
-	<section>
+	<section id="func_get_source_group" xreflabel="get_source_group()">
 		<title>
 		<function moreinfo="none">get_source_group(pvar)</function>
 		</title>
@@ -1005,10 +1015,10 @@ if ( get_source_group("$var(group)") ) {
 	</section>
 	</section>
 
-	<section>
+	<section id="exported_mi_functions" xreflabel="Exported MI Functions">
 	<title>Exported MI Functions</title>
 
-	<section>
+	<section id="mi_address_reload" xreflabel="address_reload">
 		<title>
 		<function moreinfo="none">address_reload</function>
 		</title>
@@ -1033,7 +1043,7 @@ if ( get_source_group("$var(group)") ) {
 
 	</section>
 
-	<section>
+	<section id="mi_address_dump" xreflabel="address_dump">
 		<title>
 		<function moreinfo="none">address_dump</function>
 		</title>
@@ -1054,7 +1064,7 @@ if ( get_source_group("$var(group)") ) {
 
 	</section>
 
-	<section>
+	<section id="mi_subnet_dump" xreflabel="subnet_dump">
 		<title>
 		<function moreinfo="none">subnet_dump</function>
 		</title>
@@ -1075,7 +1085,7 @@ if ( get_source_group("$var(group)") ) {
 
 	</section>
 
-	<section>
+	<section id="mi_allow_uri" xreflabel="allow_uri">
 		<title>
 		<function moreinfo="none">allow_uri</function>
 		</title>

@@ -44,7 +44,6 @@
 #include "db_con.h"
 #include "db_res.h"
 #include "db_cap.h"
-#include "db_con.h"
 #include "db_row.h"
 #include "db_ps.h"
 #include "../globals.h"
@@ -467,7 +466,7 @@ int estimate_available_rows( int payload_size, int column_count);
 	do{\
 		if (_db_url.s==NULL) {\
 			if (db_default_url==NULL) { \
-				if (!_can_be_null) {\
+				if (!(_can_be_null)) {\
 					LM_ERR("DB URL is not defined!\n"); \
 					return -1; \
 				} \

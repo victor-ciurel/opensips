@@ -4,7 +4,7 @@
 	
 	<title>&adminguide;</title>
 	
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 		This module contains functions that are used to perform authentication 
@@ -65,7 +65,7 @@
 	</example>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 		<section>
 			<title>&osips; Modules</title>
@@ -91,9 +91,9 @@
 		</section>
 	</section>
 
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
-	<section>
+	<section id="param_aaa_url" xreflabel="aaa_url">
 		<title><varname>aaa_url</varname> (string)</title>
 		<para>
 		This is the url representing the AAA protocol used and the location of the configuration file of this protocol.
@@ -109,7 +109,7 @@ modparam("auth_aaa", "aaa_url", "radius:/etc/radiusclient-ng/radiusclient.conf")
 		</programlisting>
 		</example>
 	</section>
-	<section>
+	<section id="param_service_type" xreflabel="service_type">
 		<title><varname>service_type</varname> (integer)</title>
 		<para>
 		This is the value of the Service-Type aaa attribute to be used. 
@@ -128,7 +128,7 @@ modparam("auth_aaa", "service_type", 15)
 		</programlisting>
 		</example>
 	</section>
-        <section>
+        <section id="param_use_ruri_flag" xreflabel="use_ruri_flag">
                 <title><varname>use_ruri_flag</varname> (string/integer)</title>
                 <para>
                 When this parameter is set to the value other than "NULL" and the
@@ -153,9 +153,9 @@ modparam("auth_aaa", "use_ruri_flag", "USE_RURI_FLAG")
         </section>
 	</section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
-	<section>
+	<section id="func_aaa_www_authorize" xreflabel="aaa_www_authorize()">
 		<title><function moreinfo="none">aaa_www_authorize(realm[, uri_user])</function></title>
 		<para>
 		The function verifies credentials according to 
@@ -235,9 +235,8 @@ if (!aaa_www_authorize("siphub.net")) {
 		</example>
 	</section>
 
-	<section>
-		<title><function
-		moreinfo="none">aaa_proxy_authorize(realm [, uri_user])</function></title>
+	<section id="func_aaa_proxy_authorize" xreflabel="aaa_proxy_authorize()">
+		<title><function moreinfo="none">aaa_proxy_authorize(realm [, uri_user])</function></title>
 		<para>
 		The function verifies credentials according to 
 		<ulink url="http://www.ietf.org/rfc/rfc2617.txt">RFC2617</ulink>. If 

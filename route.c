@@ -900,7 +900,7 @@ static int fix_actions(struct action* a)
 						return E_BUG;
 					}
 					if (pv_parse_spec(&s, sp) == NULL) {
-						LM_ERR("Unable to parse port paremeter var\n");
+						LM_ERR("Unable to parse port parameter var\n");
 						return E_BUG;
 					}
 					t->elem[1].u.data = (void*)sp;
@@ -922,174 +922,8 @@ error:
 }
 
 
-inline static int comp_no( int port, void *param, int op, int subtype )
-{
-
-	if (subtype!=NUMBER_ST) {
-		LM_CRIT("number expected: %d\n", subtype );
-		return E_BUG;
-	}
-	switch (op){
-		case EQUAL_OP:
-			return port==(long)param;
-		case DIFF_OP:
-			return port!=(long)param;
-		case GT_OP:
-			return port>(long)param;
-		case LT_OP:
-			return port<(long)param;
-		case GTE_OP:
-			return port>=(long)param;
-		case LTE_OP:
-			return port<=(long)param;
-		default:
-		LM_CRIT("unknown operator: %d\n", op );
-		return E_BUG;
-	}
-}
-
-/*! \brief eval_elem helping function
- * \return str op param
- */
-inline static int comp_strval(struct sip_msg *msg, int op, str* ival,
-		operand_t *opd)
-{
-	int ret;
-	regex_t* re;
-	char backup;
-	char backup2;
-	str res;
-	pv_value_t value;
-
-	if(ival==NULL || ival->s==NULL)
-		goto error;
-
-	res.s = 0; res.len = 0;
-	if(opd->type == SCRIPTVAR_ST)
-	{
-		if(pv_get_spec_value(msg, opd->v.spec, &value)!=0)
-		{
-			LM_CRIT("cannot get var value\n");
-			goto error;
-		}
-		if(value.flags&PV_VAL_STR)
-		{
-			res = value.rs;
-		} else {
-			res.s = sint2str(value.ri, &res.len);
-		}
-	} else if(opd->type == NUMBER_ST) {
-		res.s = sint2str(opd->v.n, &res.len);
-	}else if(opd->type == STR_ST) {
-		res = opd->v.s;
-	} else {
-		if((op!=MATCH_OP && op!=NOTMATCH_OP) || opd->type != RE_ST)
-		{
-			LM_CRIT("invalid operation %d/%d\n", op, opd->type);
-			goto error;
-		}
-	}
-
-
-	ret=-1;
-	switch(op){
-		case EQUAL_OP:
-			if(ival->len != res.len) return 0;
-			ret=(strncasecmp(ival->s, res.s, ival->len)==0);
-			break;
-		case DIFF_OP:
-			if(ival->len != res.len) return 1;
-			ret=(strncasecmp(ival->s, res.s, ival->len)!=0);
-			break;
-		case MATCH_OP:
-		case NOTMATCH_OP:
-			backup=ival->s[ival->len];ival->s[ival->len]='\0';
-
-			if(opd->type == SCRIPTVAR_ST) {
-				re=(regex_t*)pkg_malloc(sizeof(regex_t));
-				if (re==0){
-					LM_CRIT("pkg memory allocation failure\n");
-					ival->s[ival->len]=backup;
-					goto error;
-				}
-				backup2 = res.s[res.len];res.s[res.len] = '\0';
-				if (regcomp(re, res.s, REG_EXTENDED|REG_NOSUB|REG_ICASE)) {
-					pkg_free(re);
-					res.s[res.len] = backup2;
-					ival->s[ival->len]=backup;
-					goto error;
-				}
-				ret=(regexec(re, ival->s, 0, 0, 0)==0);
-				regfree(re);
-				pkg_free(re);
-				res.s[res.len] = backup2;
-			} else {
-				ret=(regexec((regex_t*)opd->v.data, ival->s, 0, 0, 0)==0);
-			}
-
-			ival->s[ival->len]=backup;
-			if(op==NOTMATCH_OP)
-				ret = !ret;
-			break;
-		default:
-			LM_CRIT("unknown op %d\n", op);
-			goto error;
-	}
-	return ret;
-
-error:
-	return -1;
-}
-
-/*! \brief eval_elem helping function, returns str op param
- */
-inline static int comp_str(char* str, void* param, int op, int subtype)
-{
-	int ret;
-
-	ret=-1;
-	switch(op){
-		case EQUAL_OP:
-			if (subtype!=STR_ST){
-				LM_CRIT("bad type %d, string expected\n", subtype);
-				goto error;
-			}
-			ret=(strcasecmp(str, (char*)param)==0);
-			break;
-		case DIFF_OP:
-			if (subtype!=STR_ST){
-				LM_CRIT("bad type %d, string expected\n", subtype);
-				goto error;
-			}
-			ret=(strcasecmp(str, (char*)param)!=0);
-			break;
-		case MATCH_OP:
-			if (subtype!=RE_ST){
-				LM_CRIT("bad type %d, RE expected\n", subtype);
-				goto error;
-			}
-			ret=(regexec((regex_t*)param, str, 0, 0, 0)==0);
-			break;
-		case NOTMATCH_OP:
-			if (subtype!=RE_ST){
-				LM_CRIT("bad type %d, RE expected!\n", subtype);
-				goto error;
-			}
-			ret=(regexec((regex_t*)param, str, 0, 0, 0)!=0);
-			break;
-		default:
-			LM_CRIT("unknown op %d\n", op);
-			goto error;
-	}
-	return ret;
-
-error:
-	return -1;
-}
-
-
 /*! \brief check_self wrapper -- it checks also for the op */
-inline static int check_self_op(int op, str* s, unsigned short p)
+int check_self_op(int op, str* s, unsigned short p)
 {
 	int ret;
 
@@ -1135,8 +969,15 @@ inline static int comp_ip(int op, str *ip_str, struct net *ipnet)
 /*! \brief compare str to str */
 inline static int comp_s2s(int op, str *s1, str *s2)
 {
-	char backup;
-	char backup2;
+#define make_nt_copy(_sd,_so) \
+	do { \
+		if (pkg_str_extend(_sd, (_so)->len+1)<0) \
+			return -1; \
+		memcpy((_sd)->s, (_so)->s, (_so)->len);\
+		(_sd)->s[(_so)->len] = '\0'; \
+	} while(0)
+	static str cp1 = {NULL,0};
+	static str cp2 = {NULL,0};
 	int n;
 	int rt;
 	int ret;
@@ -1201,15 +1042,13 @@ inline static int comp_s2s(int op, str *s1, str *s2)
 			break;
 		case MATCH_OP:
 			if ( s2==NULL || s1->len == 0 ) return 0;
-			backup = s1->s[s1->len];  s1->s[s1->len] = '\0';
-			ret=(regexec((regex_t*)s2, s1->s, 0, 0, 0)==0);
-			s1->s[s1->len] = backup;
+			make_nt_copy( &cp1, s1);
+			ret=(regexec((regex_t*)s2, cp1.s, 0, 0, 0)==0);
 			break;
 		case NOTMATCH_OP:
 			if ( s2==NULL || s1->len == 0 ) return 0;
-			backup = s1->s[s1->len];  s1->s[s1->len] = '\0';
-			ret=(regexec((regex_t*)s2, s1->s, 0, 0, 0)!=0);
-			s1->s[s1->len] = backup;
+			make_nt_copy( &cp1, s1);
+			ret=(regexec((regex_t*)s2, cp1.s, 0, 0, 0)!=0);
 			break;
 		case MATCHD_OP:
 		case NOTMATCHD_OP:
@@ -1220,23 +1059,19 @@ inline static int comp_s2s(int op, str *s1, str *s2)
 				return -1;
 			}
 
-			backup  = s1->s[s1->len];  s1->s[s1->len] = '\0';
-			backup2 = s2->s[s2->len];  s2->s[s2->len] = '\0';
+			make_nt_copy( &cp1, s1);
+			make_nt_copy( &cp2, s2);
 
-			if (regcomp(re, s2->s, REG_EXTENDED|REG_NOSUB|REG_ICASE)) {
+			if (regcomp(re, cp2.s, REG_EXTENDED|REG_NOSUB|REG_ICASE)) {
 				pkg_free(re);
-				s2->s[s2->len] = backup2;
-				s1->s[s1->len] = backup;
 				return -1;
 			}
 			if(op==MATCHD_OP)
-				ret=(regexec(re, s1->s, 0, 0, 0)==0);
+				ret=(regexec(re, cp1.s, 0, 0, 0)==0);
 			else
-				ret=(regexec(re, s1->s, 0, 0, 0)!=0);
+				ret=(regexec(re, cp1.s, 0, 0, 0)!=0);
 			regfree(re);
 			pkg_free(re);
-			s2->s[s2->len] = backup2;
-			s1->s[s1->len] = backup;
 			break;
 		default:
 			LM_CRIT("unknown op %d\n", op);

@@ -10,7 +10,7 @@ PATH=$PATH:/usr/local/sbin/
 
 # for testing only, please don't enable this in production environments
 # as this introduce security risks
-TEST="false"
+TEST=${TEST:-"false"}
 ### include config files
 if [ -n "$osipsctlrc" -a -f "$osipsctlrc" ]; then
 	. "$osipsctlrc"
@@ -371,32 +371,6 @@ $CLAUSE;"
 ##### ------------------------------------------------ #####
 ### alias management
 #
-check_ul_alias() {
-	require_ctlengine
-	RES=`$CTLCMD ul_show_contact "$ALS_TABLE" "$1@$2"`
-	RET=$?
-	ALIAS_UL_EXISTS=0
-	if [ $RET -ne 0 ] ; then
-		merr "OpenSIPS $CTLENGINE not accessible: $RET"
-		exit 1
-	fi
-	echo "$RES" | $EGREP "^404" > /dev/null
-	if [ $? -ne 0 ] ; then
-		echo "$RES" | $EGREP "^400" > /dev/null
-		if [ $? -eq 0 ] ; then
-			merr "400; check if you use aliases in OpenSIPS"
-			exit 1
-		fi
-		echo "$RES" | $EGREP "^200" > /dev/null
-		if [ $? -eq 0 ] ; then
-			ALIAS_UL_EXISTS=1
-		fi
-		# other errors
-		merr "$RES"
-		exit 1
-	fi
-}
-
 check_db_alias() {
 	require_dbengine
 
@@ -420,14 +394,7 @@ and $DA_ALIAS_DOMAIN_COLUMN='$2';"
 check_alias() {
 	ALIAS_EXISTS=0
 
-	if [ $ENABLE_ALIASES -eq 1 ] ; then
-		check_ul_alias "$1" "$2"
-		if [ $ALIAS_UL_EXISTS -eq 0 ] ; then
-			ALIAS_EXISTS=0
-		else
-			ALIAS_EXISTS=1
-		fi
-	elif  [ $ENABLE_ALIASES -eq 2 ] ; then
+	if  [ $ENABLE_ALIASES -eq 1 ] ; then
 		check_db_alias "$1" "$2"
 		if [ $ALIAS_DB_EXISTS -eq 0 ] ; then
 			ALIAS_EXISTS=0
@@ -1331,7 +1298,7 @@ dispatcher() {
 			DISPATCHER_WEIGHT=$5
 			DISPATCHER_ATTRS=$6
 
-			QUERY="insert into $DISPATCHER_TABLE ($DISPATCHER_SETID_COLUMN, $DISPATCHER_DESTINATION_COLUMN, $DISPATCHER_SOCKET_COLUMN, $DISPATCHER_STATE_COLUMN, $DISPATCHER_WEIGHT_COLUMN, $DISPATCHER_ATTRS_COLUMN, $DISPATCHER_DESCRIPTION_COLUMN) VALUES ($DISPATCHER_SETID, '$DISPATCHER_DESTINATION', '$DISPATCHER_SOCKET', $DISPATCHER_STATE, $DISPATCHER_WEIGHT, '$DISPATCHER_ATTRS', '$DISPATCHER_DESCRIPTION');"
+			QUERY="insert into $DISPATCHER_TABLE ($DISPATCHER_SETID_COLUMN, $DISPATCHER_DESTINATION_COLUMN, $DISPATCHER_SOCKET_COLUMN, $DISPATCHER_STATE_COLUMN, $DISPATCHER_WEIGHT_COLUMN, $DISPATCHER_ATTRS_COLUMN, $DISPATCHER_DESCRIPTION_COLUMN) VALUES ($DISPATCHER_SETID, '$DISPATCHER_DESTINATION', '$DISPATCHER_SOCKET', $DISPATCHER_STATE, '$DISPATCHER_WEIGHT', '$DISPATCHER_ATTRS', '$DISPATCHER_DESCRIPTION');"
 
 			$DBCMD "$QUERY"
 
@@ -1577,10 +1544,10 @@ dr() {
 
 			$CTLCMD dr_reload
 			;;
-		rmgrule)
+		rmrule)
 			shift
 			if [ $# -ne 1 ] ; then
-				merr "missing gateway id to be removed"
+				merr "missing rule id to be removed"
 				exit 1
 			fi
 
@@ -2377,13 +2344,7 @@ usrloc() {
 
 	require_ctlengine
 
-	if [ "$1" = "alias" ] ; then
-		USRLOC_TABLE="$ALS_TABLE"
-		if [ -z "$USRLOC_TABLE" ] ; then
-			USRLOC_TABLE=aliases
-		fi
-		CHECK_SUB=1
-	elif [ "$1" = "ul" ] ; then
+	if [ "$1" = "ul" ] ; then
 		USRLOC_TABLE="$UL_TABLE"
 		if [ -z $USRLOC_TABLE ] ; then
 			USRLOC_TABLE=location
@@ -2650,23 +2611,56 @@ opensips_trap() {
 		merr "'gdb' tool not found: set GDB variable to correct tool path"
 		exit
 	fi
-	DATE=`/bin/date +%Y%m%d_%H%M%S`
-	LOG_FILE=/tmp/gdb_opensips_$DATE
-	minfo "Trap file: $LOG_FILE"
-	$CTLCMD ps > $LOG_FILE
-	echo -n "Trapping OpenSIPS with gdb: "
-	PID_TIMESTAMP_VECTOR=`sed -e 's/.*PID=\([0-9]*\).*/\1/' $LOG_FILE`
-	minfo "$PID_TIMESTAMP_VECTOR"
-	for pid in $PID_TIMESTAMP_VECTOR
-	do
-		echo -n "."
-		PID=`echo $pid | cut -d '-' -f 1`
-		echo "" >> $LOG_FILE
-		echo "---start $PID -----------------------------------------------------" >> $LOG_FILE
-		$GDB opensips $PID -batch --eval-command="bt full" 2>&1 >> $LOG_FILE
-		echo "---end $PID -------------------------------------------------------" >> $LOG_FILE
+	DATE=$(/bin/date +%Y%m%d_%H%M%S)
+	LOG_PATH=/tmp
+	LOG_FILE=$LOG_PATH/gdb_opensips_$DATE
+	PID_FILE=$LOG_PATH/gdb_opensips_pid
+	>$LOG_FILE
+
+	if [ -z "$TRAP_PIDS" ]; then
+		# we cannot timeout a shell function -- run it as a subshell
+		($CTLCMD ps >$LOG_FILE; rm $PID_FILE) &
+		ctlpid=$!
+		echo $ctlpid >$PID_FILE
+		(sleep 1.5; if [ -e $PID_FILE ]; then pkill -P $ctlpid; fi) &>/dev/null &
+		killerpid=$!
+		wait $ctlpid
+		pkill -P $killerpid
+
+		if [ $(stat -c %s $LOG_FILE) -eq 0 ]; then
+			# all failed - one last desperate attempt at obtaining the pids
+			echo "opensipsctl 'ps' command timed out!"
+			osips_pids=($(pidof opensips | xargs -n1 | sort -n))
+		else
+			osips_pids=($(sed -e 's/.*PID=\([0-9]*\).*/\1/' $LOG_FILE))
+		fi
+	else
+		osips_pids=($(echo $TRAP_PIDS | xargs -n1 | sort -n))
+	fi
+
+	minfo "Trapping OpenSIPS with gdb: "
+
+	jobs=()
+	for pid in ${osips_pids[@]}; do
+		[ ! -r /proc/$pid ] && echo -n "(Bad pid: $pid) " && continue
+		BIN=$(readlink -f /proc/$pid/exe)
+
+		procline=$(ps --no-headers -ww -fp $pid)
+		echo -n "$pid "
+		echo "---start $pid ($procline)" >$LOG_FILE.$pid
+		$GDB $BIN $pid -batch --eval-command="bt full" 2>&1 >>$LOG_FILE.$pid &
+		jobs+=($!)
+	done; echo
+
+	for job in ${jobs[@]}; do wait $job; done
+
+	for file in $(find $LOG_PATH -name $(basename $LOG_FILE).* | sort -t. -k2n); do
+		cat $file >>$LOG_FILE
+		echo >>$LOG_FILE
+		rm $file
 	done
-	echo "."
+
+	minfo "Success! Trap file: $LOG_FILE"
 }
 
 #
@@ -2691,7 +2685,7 @@ case $1 in
 		subscriber "$@"
 		;;
 
-	alias|ul|usrloc)
+	ul|usrloc)
 		usrloc "$@"
 		;;
 

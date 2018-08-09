@@ -1,24 +1,4 @@
 rr Module
-
-Jan Janak
-
-   FhG FOKUS
-
-Bogdan-Andrei Iancu
-
-Edited by
-
-Jan Janak
-
-Edited by
-
-Bogdan-Andrei Iancu
-
-   Copyright © 2003 FhG FOKUS
-
-   Copyright © 2005 Voice Sistem SRL
-   Revision History
-   Revision $Revision: 8740 $ $Date$
      __________________________________________________________
 
    Table of Contents
@@ -47,7 +27,7 @@ Bogdan-Andrei Iancu
               1.5.4. add_rr_param(param)
               1.5.5. check_route_param(re)
               1.5.6. is_direction(dir)
-              1.5.7. Exported pseudo-variables
+              1.5.7. Exported Pseudo-Variables
 
    2. Developer Guide
 
@@ -62,6 +42,21 @@ Bogdan-Andrei Iancu
         2.2. Examples
 
    3. Frequently Asked Questions
+   4. Contributors
+
+        4.1. By Commit Statistics
+        4.2. By Commit Activity
+
+   5. Documentation
+
+        5.1. Contributors
+
+   List of Tables
+
+   4.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   4.2. Most recently active contributors^(1) to this module
 
    List of Examples
 
@@ -115,9 +110,8 @@ Chapter 1. Admin Guide
    are reinforced by RFC 3261 (see 12.1.1 UAS behavior).
 
    For this purpose, the modules offers the following functions:
-     * add_rr_param() - see Section 1.5.4, “ add_rr_param(param) ”
-     * check_route_param() - see Section 1.5.5, “
-       check_route_param(re) ”
+     * add_rr_param() - see add_rr_param()
+     * check_route_param() - see check_route_param()
 
    Example 1.1. Dialog support in RR module
 
@@ -296,8 +290,7 @@ record_route_preset("1.2.3.4:5090");
 
    Adds a parameter to the Record-Route URI (param must be in
    “;name=value” format. The function may be called also before or
-   after the record_route() call (see Section 1.5.2, “
-   record_route() and record_route(string) ”).
+   after the record_route() call (see record_route()).
 
    Meaning of the parameters is as follows:
      * param - String containing the URI parameter to be added. It
@@ -317,7 +310,7 @@ add_rr_param(";nat=yes");
    The function checks if the URI parameters of the local Route
    header (corresponding to the local server) matches the given
    regular expression. It must be call after loose_route() (see
-   Section 1.5.1, “ loose_route() ”).
+   loose_route()).
 
    Meaning of the parameters is as follows:
      * re - regular expression to check against the Route URI
@@ -336,9 +329,9 @@ if (check_route_param("nat=yes")) {
 
    The function checks the flow direction of the request. As for
    checking it's used the “ftag” Route header parameter, the
-   append_fromtag (see Section 1.4.1, “append_fromtag (integer)”
-   module parameter must be enabled. Also this must be called only
-   after loose_route() (see Section 1.5.1, “ loose_route() ”).
+   append_fromtag (see append_fromtag module parameter must be
+   enabled. Also this must be called only after loose_route() (see
+   loose_route()).
 
    The function returns true if the “dir” is the same with the
    request's flow direction.
@@ -360,7 +353,7 @@ if (is_direction("upstream")) {
 }
 ...
 
-1.5.7. Exported pseudo-variables
+1.5.7. Exported Pseudo-Variables
 
    Exported pseudo-variables are listed in the next sections.
 
@@ -416,9 +409,9 @@ Chapter 2. Developer Guide
 
    The function checks the flow direction of the request “msg”. As
    for checking it's used the “ftag” Route header parameter, the
-   append_fromtag (see Section 1.4.1, “append_fromtag (integer)”
-   module parameter must be enables. Also this must be call only
-   after the loose_route is done.
+   append_fromtag (see append_fromtag module parameter must be
+   enables. Also this must be call only after the loose_route is
+   done.
 
    The function returns 0 if the “dir” is the same with the
    request's flow direction. Otherwise, -1 is returned.
@@ -529,3 +522,85 @@ Chapter 3. Frequently Asked Questions
 
        Please follow the guidelines provided at:
        https://github.com/OpenSIPS/opensips/issues.
+
+Chapter 4. Contributors
+
+4.1. By Commit Statistics
+
+   Table 4.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Jan Janak (@janakj) 144 59 4374 2763
+   2. Bogdan-Andrei Iancu (@bogdan-iancu) 89 59 1892 829
+   3. Daniel-Constantin Mierla (@miconda) 18 14 244 92
+   4. Vlad Paiu (@vladpaiu) 15 10 333 88
+   5. Liviu Chircu (@liviuchircu) 14 11 52 91
+   6. Jiri Kuthan (@jiriatipteldotorg) 14 10 250 64
+   7. Andrei Pelinescu-Onciul 12 9 61 92
+   8. Razvan Crainea (@razvancrainea) 10 8 79 44
+   9. Anca Vamanu 9 3 191 206
+   10. Henning Westerholt (@henningw) 7 4 115 73
+
+   All remaining contributors: Ovidiu Sas (@ovidiusas), Dan Pascu
+   (@danpascu), Konstantin Bokarius, Saúl Ibarra Corretgé
+   (@saghul), Jesus Rodrigues, Julián Moreno Patiño, Norman
+   Brandinger (@NormB), Peter Lemenkov (@lemenkov), Edson Gellert
+   Schubert, Elena-Ramona Modroiu, Vlad Patrascu
+   (@rvlad-patrascu).
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+4.2. By Commit Activity
+
+   Table 4.2. Most recently active contributors^(1) to this module
+                      Name                   Commit Activity
+   1.  Peter Lemenkov (@lemenkov)          Jun 2018 - Jun 2018
+   2.  Liviu Chircu (@liviuchircu)         Oct 2013 - Jun 2018
+   3.  Vlad Patrascu (@rvlad-patrascu)     May 2017 - May 2017
+   4.  Bogdan-Andrei Iancu (@bogdan-iancu) Jan 2002 - Jun 2016
+   5.  Julián Moreno Patiño                Feb 2016 - Feb 2016
+   6.  Razvan Crainea (@razvancrainea)     Aug 2010 - Oct 2015
+   7.  Ovidiu Sas (@ovidiusas)             Oct 2010 - Jan 2015
+   8.  Norman Brandinger (@NormB)          Sep 2014 - Sep 2014
+   9.  Saúl Ibarra Corretgé (@saghul)      Mar 2012 - Mar 2012
+   10. Vlad Paiu (@vladpaiu)               Nov 2010 - Aug 2011
+
+   All remaining contributors: Anca Vamanu, Dan Pascu (@danpascu),
+   Henning Westerholt (@henningw), Daniel-Constantin Mierla
+   (@miconda), Konstantin Bokarius, Edson Gellert Schubert, Jesus
+   Rodrigues, Elena-Ramona Modroiu, Jan Janak (@janakj), Andrei
+   Pelinescu-Onciul, Jiri Kuthan (@jiriatipteldotorg).
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 5. Documentation
+
+5.1. Contributors
+
+   Last edited by: Peter Lemenkov (@lemenkov), Liviu Chircu
+   (@liviuchircu), Razvan Crainea (@razvancrainea), Bogdan-Andrei
+   Iancu (@bogdan-iancu), Vlad Paiu (@vladpaiu), Ovidiu Sas
+   (@ovidiusas), Dan Pascu (@danpascu), Daniel-Constantin Mierla
+   (@miconda), Konstantin Bokarius, Edson Gellert Schubert,
+   Elena-Ramona Modroiu, Jan Janak (@janakj).
+
+   Documentation Copyrights:
+
+   Copyright © 2005 Voice Sistem SRL
+
+   Copyright © 2003 FhG FOKUS

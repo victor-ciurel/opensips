@@ -50,6 +50,7 @@
 #include "transformations.h"
 #include "script_var.h"
 #include "pvar.h"
+#include "flags.h"
 #include "xlog.h"
 
 #include "parser/parse_from.h"
@@ -981,27 +982,6 @@ static int pv_get_flags(struct sip_msg *msg, pv_param_t *param,
 	return pv_get_strval(msg, param, res, &buf);
 }
 
-static inline char* int_to_8hex(int val)
-{
-	unsigned short digit;
-	int i;
-	static char outbuf[9];
-
-	outbuf[8] = '\0';
-	for(i=0; i<8; i++)
-	{
-		if(val!=0)
-		{
-			digit =  val & 0x0f;
-			outbuf[7-i] = digit >= 10 ? digit + 'a' - 10 : digit + '0';
-			val >>= 4;
-		}
-		else
-			outbuf[7-i] = '0';
-	}
-	return outbuf;
-}
-
 static int pv_get_bflags(struct sip_msg *msg, pv_param_t *param,
 		pv_value_t *res)
 {
@@ -1905,9 +1885,8 @@ static inline int get_branch_field( int idx, pv_name_t *pvn, pv_value_t *res)
 			res->flags = PV_VAL_STR;
 			break;
 		case BR_FLAGS_ID: /* return FLAGS */
-			res->rs.s = int2str( flags, &res->rs.len);
-			res->ri = flags;
-			res->flags = PV_VAL_STR|PV_VAL_INT;
+			res->rs = bitmask_to_flag_list(FLAG_TYPE_BRANCH, flags);
+			res->flags = PV_VAL_STR;
 			break;
 		case BR_SOCKET_ID: /* return SOCKET */
 			if ( !si )
@@ -1935,7 +1914,7 @@ static int pv_get_branch_fields(struct sip_msg *msg, pv_param_t *param,
 	if(msg==NULL || res==NULL)
 		return -1;
 
-	if(msg->first_line.type == SIP_REPLY || get_nr_branches() == 0)
+	if (get_nr_branches() == 0)
 		return pv_get_null(msg, param, res);
 
 	/* get the index */
@@ -2155,6 +2134,38 @@ static int pv_get_avp(struct sip_msg *msg,  pv_param_t *param, pv_value_t *res)
 }
 
 
+static int pv_resolve_hdr_name(str *in, pv_value_t *tv)
+{
+	struct hdr_field hdr;
+	str s;
+	if(in->len>=PV_LOCAL_BUF_SIZE-1)
+	{
+		LM_ERR("name too long\n");
+		return -1;
+	}
+	memcpy(pv_local_buf, in->s, in->len);
+	pv_local_buf[in->len] = ':';
+	s.s = pv_local_buf;
+	s.len = in->len+1;
+
+	if (parse_hname2(s.s, s.s + ((s.len<4)?4:s.len), &hdr)==0)
+	{
+		LM_ERR("error parsing header name [%.*s]\n", s.len, s.s);
+		return -1;
+	}
+	if (hdr.type!=HDR_OTHER_T && hdr.type!=HDR_ERROR_T)
+	{
+		LM_DBG("using hdr type (%d) instead of <%.*s>\n",
+			hdr.type, in->len, in->s);
+		tv->flags = 0;
+		tv->ri = hdr.type;
+	} else {
+		tv->flags = PV_VAL_STR;
+		tv->rs = *in;
+	}
+	return 0;
+}
+
 static int pv_get_hdr_prolog(struct sip_msg *msg,  pv_param_t *param, pv_value_t *res, pv_value_t* tv)
 {
 	if(msg==NULL || res==NULL || param==NULL)
@@ -2168,6 +2179,8 @@ static int pv_get_hdr_prolog(struct sip_msg *msg,  pv_param_t *param, pv_value_t
 			LM_ERR("invalid name\n");
 			return -1;
 		}
+		if (pv_resolve_hdr_name(&tv->rs, tv) < 0)
+			return -1;
 	} else {
 		if(param->pvn.u.isname.type == AVP_NAME_STR)
 		{
@@ -2372,6 +2385,85 @@ static int pv_get_hdr(struct sip_msg *msg,  pv_param_t *param, pv_value_t *res)
 	LM_DBG("index out of range\n");
 	return pv_get_null(msg, param, res);
 
+}
+
+static int pv_get_hdr_name(struct sip_msg *msg,  pv_param_t *param, pv_value_t *res)
+{
+	int idx, idx_f;
+	struct hdr_field *hf;
+	char *p;
+	int n;
+
+	if(msg==NULL || res==NULL || param==NULL)
+		return -1;
+
+	/* get the index */
+	if (pv_get_spec_index(msg, param, &idx, &idx_f) != 0) {
+		LM_ERR("invalid index\n");
+		return -1;
+	}
+
+	/* make sure we have parsed all the headers */
+	if (parse_headers(msg, HDR_EOH_F, 0) <0 ) {
+		LM_ERR("error parsing headers\n");
+		return pv_get_null(msg, param, res);
+	}
+
+	res->flags = PV_VAL_STR;
+
+	if (idx_f == PV_IDX_ALL) {
+		/* return all header names, separated by ',' */
+
+		p = pv_local_buf;
+		hf = msg->headers;
+		do {
+			if (p != pv_local_buf) {
+				if (p - pv_local_buf + PV_FIELD_DELIM_LEN + 1 > PV_LOCAL_BUF_SIZE) {
+					LM_ERR("local buffer length exceeded\n");
+					return pv_get_null(msg, param, res);
+				}
+				memcpy(p, PV_FIELD_DELIM, PV_FIELD_DELIM_LEN);
+				p += PV_FIELD_DELIM_LEN;
+			}
+
+			if (p - pv_local_buf + hf->name.len + 1 > PV_LOCAL_BUF_SIZE) {
+				LM_ERR("local buffer length exceeded!\n");
+				return pv_get_null(msg, param, res);
+			}
+			memcpy(p, hf->name.s, hf->name.len);
+			p += hf->name.len;
+
+			hf = hf->next;
+		} while (hf);
+
+		*p = 0;
+		res->rs.s = pv_local_buf;
+		res->rs.len = p - pv_local_buf;
+		return 0;
+	}
+
+	if (idx < 0) {
+		/* negative index, translate it to a positive one */
+
+		n = 0;
+		for (hf = msg->headers; hf; hf = hf->next, n++) ;
+		idx = -idx;
+		if(idx > n) {
+			LM_DBG("index [%d] out of range\n", -idx);
+			return pv_get_null(msg, param, res);
+		}
+		idx = n - idx;
+	}
+
+	for (hf = msg->headers, n = 0; hf && n != idx; hf = hf->next, n++) ;
+
+	if (!hf) {
+		LM_DBG("index [%d] out of range\n", idx);
+		return pv_get_null(msg, param, res);
+	}
+
+	res->rs = hf->name;
+	return 0;
 }
 
 static int pv_get_scriptvar(struct sip_msg *msg,  pv_param_t *param,
@@ -2859,9 +2951,6 @@ int pv_set_branch(struct sip_msg* msg, pv_param_t *param,
 		return -1;
 	}
 
-	if (msg->first_line.type == SIP_REPLY)
-		return -1;
-
 	if (!val || !(val->flags&PV_VAL_STR) || val->flags&(PV_VAL_NULL) ||
 	val->rs.len==0 ) {
 		LM_ERR("str value required to create a new branch\n");
@@ -2951,11 +3040,12 @@ int pv_set_branch_fields(struct sip_msg* msg, pv_param_t *param,
 			return update_branch( idx, NULL, NULL,
 				&s, NULL, NULL, NULL);
 		case BR_FLAGS_ID: /* set FLAGS */
-			if ( val && !(val->flags&PV_VAL_INT) ) {
-				LM_ERR("INT value required to set the branch FLAGS\n");
+			if ( val && !(val->flags&PV_VAL_STR) ) {
+				LM_ERR("string value required to set the branch FLAGS\n");
 				return -1;
 			}
-			flags = (!val||val->flags&PV_VAL_NULL)? 0 : val->ri;
+			flags = (!val||val->flags&PV_VAL_NULL)?
+				0 : flag_list_to_bitmask(&val->rs, FLAG_TYPE_BRANCH, FLAG_DELIM);
 			return update_branch( idx, NULL, NULL,
 				NULL, NULL, &flags, NULL);
 		case BR_SOCKET_ID: /* set SOCKET */
@@ -3051,10 +3141,9 @@ int pv_parse_scriptvar_name(pv_spec_p sp, str *in)
 
 int pv_parse_hdr_name(pv_spec_p sp, str *in)
 {
-	str s;
 	char *p;
 	pv_spec_p nsp = 0;
-	struct hdr_field hdr;
+	pv_value_t tv;
 
 	if(in==NULL || in->s==NULL || sp==NULL)
 		return -1;
@@ -3082,35 +3171,21 @@ int pv_parse_hdr_name(pv_spec_p sp, str *in)
 		return 0;
 	}
 
-	if(in->len>=PV_LOCAL_BUF_SIZE-1)
-	{
-		LM_ERR("name too long\n");
+	if (pv_resolve_hdr_name(in, &tv) < 0)
 		return -1;
-	}
-	memcpy(pv_local_buf, in->s, in->len);
-	pv_local_buf[in->len] = ':';
-	s.s = pv_local_buf;
-	s.len = in->len+1;
 
-	if (parse_hname2(s.s, s.s + ((s.len<4)?4:s.len), &hdr)==0)
-	{
-		LM_ERR("error parsing header name [%.*s]\n", s.len, s.s);
-		goto error;
-	}
 	sp->pvp.pvn.type = PV_NAME_INTSTR;
-	if (hdr.type!=HDR_OTHER_T && hdr.type!=HDR_ERROR_T)
+	if (!tv.flags)
 	{
 		LM_DBG("using hdr type (%d) instead of <%.*s>\n",
-			hdr.type, in->len, in->s);
+			tv.ri, in->len, in->s);
 		sp->pvp.pvn.u.isname.type = 0;
-		sp->pvp.pvn.u.isname.name.n = hdr.type;
+		sp->pvp.pvn.u.isname.name.n = tv.ri;
 	} else {
 		sp->pvp.pvn.u.isname.type = AVP_NAME_STR;
 		sp->pvp.pvn.u.isname.name.s = *in;
 	}
 	return 0;
-error:
-	return -1;
 }
 
 int pv_parse_avp_name(pv_spec_p sp, str *in)
@@ -3373,6 +3448,8 @@ static pv_export_t _pv_names_table[] = {
 	{{"avp", (sizeof("avp")-1)}, PVT_AVP, pv_get_avp, pv_set_avp,
 		pv_parse_avp_name, pv_parse_avp_index, 0, 0},
 	{{"hdr", (sizeof("hdr")-1)}, PVT_HDR, pv_get_hdr, 0, pv_parse_hdr_name,
+		pv_parse_index, 0, 0},
+	{{"hdr_name", (sizeof("hdr_name")-1)}, PVT_HDR_NAME, pv_get_hdr_name, 0, 0,
 		pv_parse_index, 0, 0},
 	{{"hdrcnt", (sizeof("hdrcnt")-1)}, PVT_HDRCNT, pv_get_hdrcnt, 0, pv_parse_hdr_name, 0, 0, 0},
 	{{"var", (sizeof("var")-1)}, PVT_SCRIPTVAR, pv_get_scriptvar,
@@ -4694,7 +4771,7 @@ int pv_add_extra(pv_export_t *e)
 		LM_ERR("no more memory\n");
 		return -1;
 	}
-	memcpy(pvn, e, sizeof(pv_extra_t));
+	memcpy(&pvn->pve, e, sizeof(*e));
 	pvn->pve.type += PVT_EXTRA;
 
 	if(pvj==0)

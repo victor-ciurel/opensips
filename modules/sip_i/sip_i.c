@@ -29,6 +29,7 @@
 #include "../../pvar.h"
 #include "../../ut.h"
 #include "../../trim.h"
+#include "../../mod_fix.h"
 #include "../../parser/parse_body.h"
 #include "../../parser/parse_pai.h"
 #include "../../parser/parse_privacy.h"
@@ -51,7 +52,7 @@ int pv_get_isup_param_str(struct sip_msg *msg, pv_param_t *param, pv_value_t *re
 int pv_set_isup_param(struct sip_msg* msg, pv_param_t *param, int op, pv_value_t *val);
 
 /* script functions */
-static int add_isup_part_cmd(struct sip_msg *msg, char *param);
+static int add_isup_part_cmd(struct sip_msg *msg, char *param, char *hdrs);
 
 /* script transformations */
 int tr_isup_parse(str* in, trans_t *t);
@@ -74,21 +75,28 @@ static pv_export_t mod_items[] = {
 };
 
 static cmd_export_t cmds[] = {
-	{"add_isup_part", (cmd_function)add_isup_part_cmd, 0, 0, 0, REQUEST_ROUTE | FAILURE_ROUTE |
-		 ONREPLY_ROUTE | LOCAL_ROUTE | BRANCH_ROUTE},
-	{"add_isup_part", (cmd_function)add_isup_part_cmd, 1, 0, 0, REQUEST_ROUTE | FAILURE_ROUTE |
-		 ONREPLY_ROUTE | LOCAL_ROUTE | BRANCH_ROUTE},
+	{"add_isup_part", (cmd_function)add_isup_part_cmd, 0,
+		NULL, 0, REQUEST_ROUTE | FAILURE_ROUTE |
+		ONREPLY_ROUTE | LOCAL_ROUTE | BRANCH_ROUTE},
+	{"add_isup_part", (cmd_function)add_isup_part_cmd, 1,
+		fixup_spve_spve, 0, REQUEST_ROUTE | FAILURE_ROUTE |
+		ONREPLY_ROUTE | LOCAL_ROUTE | BRANCH_ROUTE},
+	{"add_isup_part", (cmd_function)add_isup_part_cmd, 2,
+		fixup_spve_spve, 0, REQUEST_ROUTE | FAILURE_ROUTE |
+		ONREPLY_ROUTE | LOCAL_ROUTE | BRANCH_ROUTE},
 	{0,0,0,0,0,0}
 };
 
 static str param_subf_sep = str_init(DEFAULT_PARAM_SUBF_SEP);
 static str isup_mime = str_init(ISUP_MIME_S);
 static str country_code = str_init(DEFAULT_COUNTRY_CODE);
+static str default_part_headers = str_init(DEFAULT_PART_HEADERS);
 
 static param_export_t params[] = {
 	{"param_subfield_separator", STR_PARAM, &param_subf_sep.s},
 	{"isup_mime_str", STR_PARAM, &isup_mime.s},
 	{"country_code", STR_PARAM, &country_code.s},
+	{"default_part_headers", STR_PARAM, &default_part_headers.s},
 	{0,0,0}
 };
 
@@ -114,10 +122,16 @@ struct module_exports exports= {
 
 static int mod_init(void)
 {
+	/* update the len of the str's, if changed via modparam */
+	param_subf_sep.len = strlen( param_subf_sep.s );
+	isup_mime.len = strlen( isup_mime.s );
+	country_code.len = strlen( country_code.s );
 	if (country_code.len < 2 || country_code.len > 4) {
-		LM_ERR("Invalid country code parameter, must be a \"+\" sign followed by 1-3 digits\n");
+		LM_ERR("Invalid country code parameter, must be a \"+\" sign "
+			"followed by 1-3 digits\n");
 		return -1;
 	}
+	default_part_headers.len = strlen( default_part_headers.s );
 
 	return 0;
 }
@@ -686,7 +700,7 @@ int get_isup_param_msg(struct sip_msg *msg, pv_param_t *param, int *pv_idx,
 		*parse_struct = (struct isup_parsed_struct*)(*isup_part)->parsed;
 	else {
 		*parse_struct = parse_isup_body(msg);
-		if (!parse_struct) {
+		if (!*parse_struct) {
 			LM_WARN("Unable to parse ISUP message\n");
 			return -1;
 		}
@@ -924,6 +938,10 @@ int pv_set_isup_param(struct sip_msg* msg, pv_param_t *param, int op, pv_value_t
 
 	if (!p) {	/* param not found in parsed struct so it should be a new optional param */
 		opt_p = pkg_malloc(sizeof *opt_p);
+		if (!opt_p) {
+			LM_ERR("No more pkg memory!\n");
+			return -1;
+		}
 		opt_p->next = isup_struct->opt_params_list;
 		memset(&opt_p->param, 0, sizeof(struct param_parsed_struct));
 		opt_p->param.param_code = isup_params[fix->isup_params_idx].param_code;
@@ -1188,7 +1206,7 @@ static int init_iam_default(struct sip_msg *sip_msg, struct isup_parsed_struct *
 {
 	pv_value_t val;
 	str *ruri;
-	char number[16]; /* E.164 number - max 15 digits */
+	char number[MAX_NUM_LEN];
 	char intl_num = 0;
 	char *p;
 	int i = 0;
@@ -1231,17 +1249,17 @@ static int init_iam_default(struct sip_msg *sip_msg, struct isup_parsed_struct *
 	/* check RURI */
 	ruri = GET_RURI(sip_msg);
 	if (!ruri->s || ruri->len < 7) {
-		LM_DBG("invalid R-URI length\n");
+		LM_INFO("invalid R-URI length\n");
 		goto cpn_err;
 	}
 	/* sip: URI required */
 	if (memcmp(ruri->s, "sip:", 4)) {
-		LM_DBG("\"sip:\" URI required for the R-URI\n");
+		LM_INFO("\"sip:\" URI required for the R-URI\n");
 		goto cpn_err;
 	}
 	/* user=phone parameter required for RURI */
 	if (!l_memmem(ruri->s, "user=phone", ruri->len, 10)) {
-		LM_DBG("\"user=phone\" parameter required for R-URI\n");
+		LM_INFO("\"user=phone\" parameter required for R-URI\n");
 		goto cpn_err;
 	}
 	/* if "+" prefix is present it is an international call */
@@ -1249,15 +1267,22 @@ static int init_iam_default(struct sip_msg *sip_msg, struct isup_parsed_struct *
 		intl_num = 1;
 
 	/* get number from RURI */
-	for (p = ruri->s + (intl_num?5:4); *p != '@' && *p != ';' && p - ruri->s < ruri->len; p++)
+	for (p = ruri->s + (intl_num?5:4);
+		 i < MAX_NUM_LEN && *p != '@' && *p != ';' && p - ruri->s < ruri->len;
+		 p++)
 		if ((*p >= '0' && *p <= '9') || char2digit(*p)) /* phone or dtmf digit */
 			number[i++] = *p;
-		else if (*p != '-' && *p != '.' && *p != '(' && *p != ')') { /* not a visual separator */
-			LM_DBG("Unknown char <%c> in R-URI number\n", *p);
+		else if (*p != '-' && *p != '.' && *p != '(' && *p != ')') {
+			/* not a visual separator */
+			LM_INFO("Unknown char <%c> in R-URI number\n", *p);
 			goto cpn_err;
 		}
 	if (i < 3) {
-		LM_DBG("R-URI number to short\n");
+		LM_INFO("R-URI number to short\n");
+		goto cpn_err;
+	}
+	if (i == MAX_NUM_LEN && *p != '@' && *p != ';' && p - ruri->s < ruri->len) {
+		LM_INFO("R-URI number to long should have max 15 digits (E.164)\n");
 		goto cpn_err;
 	}
 
@@ -1271,7 +1296,7 @@ static int init_iam_default(struct sip_msg *sip_msg, struct isup_parsed_struct *
 	val.rs.len = i;
 	isup_params[PARM_CALLED_PARTY_NUM_IDX].write_func(PARM_CALLED_PARTY_NUM_IDX,
 							4, isup_struct->mand_var_params[0].val, &new_len, &val);
-	LM_DBG("Called party number set to: %.*s\n", i, number);
+	LM_INFO("Called party number set to: %.*s\n", i, number);
 
 	isup_struct->mand_var_params[0].len = new_len;
 	isup_struct->total_len += new_len;
@@ -1304,11 +1329,11 @@ set_cgpn:
 
 	/* P-Asserted-Identity should be a sip: or tel: URI with a global number in the form: "+"CC + NDC + SN */
 	if (pai->parsed_uri.type != SIP_URI_T && pai->parsed_uri.type != TEL_URI_T) {
-		LM_DBG("\"sip:\" URI required for P-Asserted-Identity\n");
+		LM_INFO("\"sip:\" URI required for P-Asserted-Identity\n");
 		goto cgpn_err;
 	}
 	if (pai->parsed_uri.user.s[0] != '+') {
-		LM_DBG("P-Asserted-Identity number should start with \"+\" sign\n");
+		LM_INFO("P-Asserted-Identity number should start with \"+\" sign\n");
 		goto cgpn_err;
 	}
 
@@ -1356,23 +1381,30 @@ set_cgpn:
 
 	/* Address signal */
 	i = 0;
-	for (p = pai->parsed_uri.user.s + 1; *p != ';' && p - pai->parsed_uri.user.s < pai->parsed_uri.user.len; p++)
+	for (p = pai->parsed_uri.user.s + 1;
+		 i < MAX_NUM_LEN && *p != ';' && p - pai->parsed_uri.user.s < pai->parsed_uri.user.len;
+		 p++)
 		if ((*p >= '0' && *p <= '9') || char2digit(*p)) /* phone or dtmf digit */
 			number[i++] = *p;
 		else if (*p != '-' && *p != '.' && *p != '(' && *p != ')') { /* not a visual separator */
-			LM_DBG("Unknown char <%c> in P-Asserted-Identity number\n", *p);
+			LM_INFO("Unknown char <%c> in P-Asserted-Identity number\n", *p);
 			goto cgpn_err;
 		}
 	if (i < 3) {
-		LM_DBG("P-Asserted-Identity number to short, only <%d> digits\n", i);
+		LM_INFO("P-Asserted-Identity number to short, only <%d> digits\n", i);
 		goto cgpn_err;
 	}
+	if (i == MAX_NUM_LEN && *p != ';' && p - pai->parsed_uri.user.s < pai->parsed_uri.user.len) {
+		LM_INFO("P-Asserted-Identity number to long, should have max 15 digits (E.164)\n");
+		goto cgpn_err;
+	}
+
 	val.flags = PV_VAL_STR;
 	val.rs.s = intl_num ? number : number + country_code.len - 1;
 	val.rs.len = intl_num ? i : i - country_code.len + 1;
 	isup_params[PARM_CALLING_PARTY_NUM_IDX].write_func(PARM_CALLING_PARTY_NUM_IDX,
 												6, cgpn->param.val, &new_len, &val);
-	LM_DBG("Calling party number set to: %.*s\n", val.rs.len, val.rs.s);
+	LM_INFO("Calling party number set to: %.*s\n", val.rs.len, val.rs.s);
 
 	link_new_opt_param(isup_struct, cgpn, new_len);
 
@@ -1598,12 +1630,13 @@ static int init_anm_default(struct sip_msg *sip_msg, struct isup_parsed_struct *
 }
 
 
-static int add_isup_part_cmd(struct sip_msg *msg, char *param)
+static int add_isup_part_cmd(struct sip_msg *msg, char *param, char *hdrs)
 {
 	struct isup_parsed_struct *isup_struct;
 	struct body_part *isup_part;
 	int isup_msg_idx = -1;
 	str param_msg_type;
+	str sip_hdrs;
 	int i;
 	int rc;
 
@@ -1647,9 +1680,17 @@ static int add_isup_part_cmd(struct sip_msg *msg, char *param)
 			LM_ERR("Invalid SIP message\n");
 			return -1;
 		}
+
 	} else {
-		param_msg_type.len = strlen(param);
-		param_msg_type.s = param;
+
+		if(fixup_get_svalue(msg, (gparam_p)param, &param_msg_type)!=0) {
+			LM_ERR("cannot print the param format\n");
+			return -1;
+		}
+		if(param_msg_type.s==NULL || param_msg_type.len==0) {
+			LM_ERR("null/empty param found\n");
+			return -1;
+		}
 
 		for (i = 0; i < NO_ISUP_MESSAGES; i++)
 			if (param_msg_type.len == 3) {
@@ -1675,6 +1716,24 @@ static int add_isup_part_cmd(struct sip_msg *msg, char *param)
 			LM_WARN("Initial address message maps only to INVITE\n");
 			return -1;
 		}
+	}
+
+	/* handle the extra SIP headers */
+	if (hdrs!=NULL) {
+		if(fixup_get_svalue(msg, (gparam_p)hdrs, &sip_hdrs)!=0) {
+			LM_ERR("cannot print the param format, ignoring SIP headers\n");
+			sip_hdrs.len = 0;
+			sip_hdrs.s = NULL;
+		} else if(sip_hdrs.s==NULL || sip_hdrs.len==0) {
+			LM_DBG("null/empty SIP headers found\n");
+			sip_hdrs.len = 0;
+			sip_hdrs.s = NULL;
+		}
+	} else if (default_part_headers.len) {
+		sip_hdrs = default_part_headers;
+	} else {
+		sip_hdrs.len = 0;
+		sip_hdrs.s = NULL;
 	}
 
 	/* first, build a blank isup message (no optional params, all mandatory fixed params zeroed) */
@@ -1728,13 +1787,13 @@ static int add_isup_part_cmd(struct sip_msg *msg, char *param)
 	}
 
 	if (rc < 0)
-		LM_INFO("Unable to set %.*s message parameters by default\n",
+		LM_INFO("Unable to set all %.*s message parameters by default\n",
 			isup_messages[isup_msg_idx].name.len, isup_messages[isup_msg_idx].name.s);
 	else if (rc == 0)
 		LM_DBG("%.*s message parameters set by default\n",
 			isup_messages[isup_msg_idx].name.len, isup_messages[isup_msg_idx].name.s);
 
-	isup_part = add_body_part(msg, &isup_mime, NULL);
+	isup_part = add_body_part(msg, &isup_mime, sip_hdrs.s?&sip_hdrs:NULL, NULL);
 	if (!isup_part) {
 		LM_ERR("Failed to add isup body part\n");
 		return -1;

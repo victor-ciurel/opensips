@@ -63,6 +63,8 @@ static cachedb_con *cdbc = 0;
 
 int rl_buffer_th = RL_BUF_THRESHOLD;
 
+static str pipe_repl_cap = str_init("ratelimit-pipe-repl");
+
 /* returnes the idex of the pipe in our hash */
 #define RL_GET_INDEX(_n)		core_hash(&(_n), NULL, rl_htable.size);
 
@@ -312,6 +314,35 @@ int w_rl_check_2(struct sip_msg *_m, char *_n, char *_l)
 	return w_rl_check_3(_m, _n, _l, NULL);
 }
 
+rl_pipe_t *rl_create_pipe(int limit, rl_algo_t algo)
+{
+	rl_pipe_t *pipe;
+	int size = sizeof(rl_pipe_t);
+
+	if (algo == PIPE_ALGO_NOP)
+		algo = rl_default_algo;
+
+	if (algo == PIPE_ALGO_HISTORY)
+		size += (rl_window_size * 1000) / rl_slot_period * sizeof(long int);
+
+	pipe = shm_malloc(size);
+	if (!pipe) {
+		LM_ERR("no more shm memory!\n");
+		return NULL;
+	}
+	memset(pipe, 0, size);
+
+	pipe->algo = algo;
+	pipe->limit = limit;
+
+	if (algo == PIPE_ALGO_HISTORY) {
+		pipe->rwin.window = (long int *)(pipe + 1);
+		pipe->rwin.window_size = (rl_window_size * 1000) / rl_slot_period;
+		/* everything else is already cleared */
+	}
+	return pipe;
+}
+
 int w_rl_check_3(struct sip_msg *_m, char *_n, char *_l, char *_a)
 {
 	str name;
@@ -376,23 +407,13 @@ int w_rl_check_3(struct sip_msg *_m, char *_n, char *_l, char *_a)
 
 	if (!*pipe) {
 		/* allocate new pipe */
-		*pipe = shm_malloc(sizeof(rl_pipe_t) +
-				/* memory for the window */
-				(rl_window_size*1000) / rl_slot_period * sizeof(long int));
-		if (!*pipe) {
-			LM_ERR("no more shm memory\n");
+		if (!(*pipe = rl_create_pipe(limit, algo)))
 			goto release;
-		}
-		memset(*pipe, 0, sizeof(rl_pipe_t));
+
 		LM_DBG("Pipe %.*s doesn't exist, but was created %p\n",
 				name.len, name.s, *pipe);
-		if (algo == PIPE_ALGO_NETWORK)
+		if ((*pipe)->algo == PIPE_ALGO_NETWORK)
 			should_update = 1;
-		(*pipe)->algo = (algo == PIPE_ALGO_NOP) ? rl_default_algo : algo;
-		(*pipe)->rwin.window = (long int *)((*pipe) + 1);
-		(*pipe)->rwin.window_size   = rl_window_size * 1000 / rl_slot_period;
-		memset((*pipe)->rwin.window, 0,
-				(*pipe)->rwin.window_size * sizeof(long int));
 	} else {
 		LM_DBG("Pipe %.*s found: %p - last used %lu\n",
 			name.len, name.s, *pipe, (*pipe)->last_used);
@@ -400,10 +421,9 @@ int w_rl_check_3(struct sip_msg *_m, char *_n, char *_l, char *_a)
 			LM_WARN("algorithm %d different from the initial one %d for pipe "
 				"%.*s", algo, (*pipe)->algo, name.len, name.s);
 		}
+		/* update the limit */
+		(*pipe)->limit = limit;
 	}
-
-	/* set/update the limit */
-	(*pipe)->limit = limit;
 
 	/* set the last used time */
 	(*pipe)->last_used = time(0);
@@ -516,7 +536,8 @@ void rl_timer(unsigned int ticks, void *param)
 				case PIPE_ALGO_RED:
 					if ((*pipe)->limit && rl_timer_interval)
 						(*pipe)->load = (*pipe)->counter /
-						((*pipe)->limit * rl_timer_interval);
+						((*pipe)->limit *
+							(rl_limit_per_interval ? 1 : rl_timer_interval));
 					break;
 				default:
 					break;
@@ -716,6 +737,8 @@ int w_rl_set_count(str key, int val)
 			LM_ERR("cannot decrease counter\n");
 			goto release;
 		}
+	} else if ((*pipe)->algo == PIPE_ALGO_HISTORY) {
+		hist_set_count(*pipe, val);
 	} else {
 		if (val && (val + (*pipe)->counter >= 0)) {
 			(*pipe)->counter += val;
@@ -790,8 +813,7 @@ error:
 
 
 
-void rl_rcv_bin(enum clusterer_event ev, bin_packet_t *packet, int packet_type,
-					struct receive_info *ri, int cluster_id, int src_id, int dest_id)
+void rl_rcv_bin(bin_packet_t *packet)
 {
 	rl_algo_t algo;
 	int limit;
@@ -802,17 +824,9 @@ void rl_rcv_bin(enum clusterer_event ev, bin_packet_t *packet, int packet_type,
 	time_t now;
 	rl_repl_counter_t *destination;
 
-	if (ev == CLUSTER_NODE_DOWN || ev == CLUSTER_NODE_UP)
-		return;
-	else if (ev == CLUSTER_ROUTE_FAILED) {
-		LM_INFO("failed to route replication packet of type %d from node %d to node"
-			" %d in cluster: %d\n", packet_type, src_id, dest_id, cluster_id);
-		return;
-	}
-
-	if (packet_type != RL_PIPE_COUNTER) {
+	if (packet->type != RL_PIPE_COUNTER) {
 		LM_WARN("Invalid binary packet command: %d (from node: %d in cluster: %d)\n",
-			packet_type, src_id, cluster_id);
+			packet->type, packet->src_id, rl_repl_cluster);
 		return;
 	}
 
@@ -849,16 +863,11 @@ void rl_rcv_bin(enum clusterer_event ev, bin_packet_t *packet, int packet_type,
 
 		if (!*pipe) {
 			/* if the pipe does not exist, allocate it in case we need it later */
-			*pipe = shm_malloc(sizeof(rl_pipe_t));
-			if (!*pipe) {
-				LM_ERR("no more shm memory\n");
+			if (!(*pipe = rl_create_pipe(limit, algo)))
 				goto release;
-			}
-			memset(*pipe, 0, sizeof(rl_pipe_t));
 			LM_DBG("Pipe %.*s doesn't exist, but was created %p\n",
 				name.len, name.s, *pipe);
-			(*pipe)->algo = algo;
-			(*pipe)->limit = limit;
+
 		} else {
 			LM_DBG("Pipe %.*s found: %p - last used %lu\n",
 				name.len, name.s, *pipe, (*pipe)->last_used);
@@ -876,7 +885,9 @@ void rl_rcv_bin(enum clusterer_event ev, bin_packet_t *packet, int packet_type,
 		/* set the last used time */
 		(*pipe)->last_used = time(0);
 		/* set the destination's counter */
-		destination = find_destination(*pipe, src_id);
+		destination = find_destination(*pipe, packet->src_id);
+		if (!destination)
+			goto release;
 		destination->counter = counter;
 		destination->update = now;
 		RL_RELEASE_LOCK(hash_idx);
@@ -891,7 +902,7 @@ release:
  * same as hist_check() in ratelimit.c but this one
  * only counts, no updates on the window ==> faster
  */
-static inline int hist_count(rl_pipe_t *pipe)
+static inline int ALLOW_UNUSED hist_count(rl_pipe_t *pipe)
 {
 	/* Window ELement*/
 	#define U2MILI(__usec__) (__usec__/1000)
@@ -940,16 +951,14 @@ static inline int hist_count(rl_pipe_t *pipe)
 
 int rl_repl_init(void)
 {
-
 	if (rl_buffer_th > (BUF_SIZE * 0.9)) {
 		LM_WARN("Buffer size too big %d - pipe information might get lost",
 			rl_buffer_th);
 		return -1;
 	}
 
-	if (accept_repl_pipes &&
-		clusterer_api.register_module("ratelimit", rl_rcv_bin,
-		repl_pipes_auth_check, &accept_repl_pipes, 1) < 0) {
+	if (rl_repl_cluster && clusterer_api.register_capability(&pipe_repl_cap,
+		rl_rcv_bin, NULL, rl_repl_cluster, 0, NODE_CMP_ANY) < 0) {
 		LM_ERR("Cannot register clusterer callback!\n");
 		return -1;
 	}
@@ -983,7 +992,6 @@ error:
 
 void rl_timer_repl(utime_t ticks, void *param)
 {
-	static str module_name = str_init("ratelimit");
 	unsigned int i = 0;
 	map_iterator_t it;
 	rl_pipe_t **pipe;
@@ -992,7 +1000,7 @@ void rl_timer_repl(utime_t ticks, void *param)
 	int ret;
 	bin_packet_t packet;
 
-	if (bin_init(&packet, &module_name, RL_PIPE_COUNTER, BIN_VERSION, 0) < 0) {
+	if (bin_init(&packet, &pipe_repl_cap, RL_PIPE_COUNTER, BIN_VERSION, 0) < 0) {
 		LM_ERR("cannot initiate bin buffer\n");
 		return;
 	}
@@ -1030,7 +1038,13 @@ void rl_timer_repl(utime_t ticks, void *param)
 			if (bin_push_int(&packet, (*pipe)->limit) < 0)
 				goto error;
 
-			if ((ret = bin_push_int(&packet, (*pipe)->my_last_counter)) < 0)
+			/*
+			 * for the SBT algorithm it is safe to replicate the current
+			 * counter, since it is always updating according to the window
+			 */
+			if ((ret = bin_push_int(&packet,
+						((*pipe)->algo == PIPE_ALGO_HISTORY ?
+						 (*pipe)->counter : (*pipe)->my_last_counter))) < 0)
 				goto error;
 			nr++;
 
@@ -1099,8 +1113,10 @@ int rl_get_counter_value(str *key)
 			LM_ERR("cannot get the counter's value\n");
 			goto release;
 		}
-	}
-	ret = rl_get_all_counters(*pipe);
+	} else if ((*pipe)->algo == PIPE_ALGO_HISTORY)
+		ret = hist_get_count(*pipe);
+	else
+		ret = rl_get_all_counters(*pipe);
 
 release:
 	RL_RELEASE_LOCK(hash_idx);

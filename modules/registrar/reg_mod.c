@@ -100,6 +100,8 @@ int max_expires     = 0;			/*!< Maximum expires the phones are allowed to use in
 int max_contacts = 0;		/*!< Maximum number of contacts per AOR (0=no checking) */
 int retry_after = 0;				/*!< The value of Retry-After HF in 5xx replies */
 
+extern ucontact_t **selected_cts;
+extern int selected_cts_sz;
 
 char* rcv_avp_param = 0;
 unsigned short rcv_avp_type = 0;
@@ -152,14 +154,16 @@ static cmd_export_t cmds[] = {
 		REQUEST_ROUTE|ONREPLY_ROUTE },
 	{"remove",       (cmd_function)w_remove_3,   3,  fixup_remove,     0,
 		REQUEST_ROUTE|ONREPLY_ROUTE },
-	{"remove",       (cmd_function)_remove,      4,  fixup_remove,     0,
+	{"remove",       (cmd_function)w_remove_4,   4,  fixup_remove,     0,
+		REQUEST_ROUTE|ONREPLY_ROUTE },
+	{"remove",       (cmd_function)_remove,      5,  fixup_remove,     0,
 		REQUEST_ROUTE|ONREPLY_ROUTE },
 	{"lookup",       (cmd_function)lookup,       1,  registrar_fixup,  0,
 		REQUEST_ROUTE | FAILURE_ROUTE },
 	{"lookup",       (cmd_function)lookup,       2,  registrar_fixup,  0,
 		REQUEST_ROUTE | FAILURE_ROUTE },
 	{"lookup",       (cmd_function)lookup,       3,  registrar_fixup,  0,
-		REQUEST_ROUTE | FAILURE_ROUTE },
+		REQUEST_ROUTE | FAILURE_ROUTE | ONREPLY_ROUTE },
 	{"add_sock_hdr", (cmd_function)add_sock_hdr, 1,  fixup_str_null,   0,
 		REQUEST_ROUTE },
 	{"is_registered",      (cmd_function)is_registered, 1,
@@ -265,7 +269,6 @@ static int mod_init(void)
 {
 	pv_spec_t avp_spec;
 	str s;
-	bind_usrloc_t bind_usrloc;
 
 	LM_INFO("initializing...\n");
 
@@ -338,9 +341,8 @@ static int mod_init(void)
 		attr_avp_type = 0;
 	}
 
-	bind_usrloc = (bind_usrloc_t)find_export("ul_bind_usrloc", 1, 0);
-	if (!bind_usrloc) {
-		LM_ERR("can't bind usrloc\n");
+	if (load_ul_api(&ul) != 0) {
+		LM_ERR("failed to bind usrloc\n");
 		return -1;
 	}
 
@@ -353,11 +355,6 @@ static int mod_init(void)
 			LM_DBG("default_q = %d, raising to MIN_Q: %d\n", default_q, MIN_Q);
 			default_q = MIN_Q;
 		}
-	}
-
-
-	if (bind_usrloc(&ul) < 0) {
-		return -1;
 	}
 
 	/*
@@ -375,6 +372,13 @@ static int mod_init(void)
 	fix_flag_name(tcp_persistent_flag_s, tcp_persistent_flag);
 	tcp_persistent_flag = get_flag_id_by_name(FLAG_TYPE_MSG, tcp_persistent_flag_s);
 	tcp_persistent_flag = (tcp_persistent_flag!=-1)?(1<<tcp_persistent_flag):0;
+
+	/* init contact sorting array */
+	selected_cts = pkg_malloc(selected_cts_sz * sizeof *selected_cts);
+	if (!selected_cts) {
+		LM_ERR("oom\n");
+		return -1;
+	}
 
 	return 0;
 }
@@ -410,7 +414,7 @@ static int domain_fixup(void** param)
 }
 
 /*! \brief
- * @params: domain, AOR, contact/domain
+ * @params: domain, AOR, contact, next_hop, sip_instance
  */
 static int fixup_remove(void** param, int param_no)
 {
@@ -423,9 +427,11 @@ static int fixup_remove(void** param, int param_no)
 		return fixup_spve(param);
 	case 4:
 		return fixup_spve(param);
+	case 5:
+		return fixup_spve(param);
 
 	default:
-		LM_ERR("maximum 3 params! given at least %d\n", param_no);
+		LM_ERR("maximum 5 params! given at least %d\n", param_no);
 		return E_INVALID_PARAMS;
 	}
 }

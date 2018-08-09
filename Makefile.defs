@@ -61,8 +61,8 @@ export makefile_defs
 MAIN_NAME=opensips
 
 #version number
-VERSION_MAJOR = 2
-VERSION_MINOR = 4
+VERSION_MAJOR = 3
+VERSION_MINOR = 0
 VERSION_SUBMINOR = 0
 VERSION_BUILD = dev
 
@@ -181,7 +181,7 @@ else ifneq (,$(findstring gcc, $(CC_LONGVER)))
 	#XXX: for now treat 4+.x the same as 4.x
 	CC_CLASS=$(shell echo "$(CC_SHORTVER)" | \
 				 sed -e 's/2\.9.*/2.9x/' -e 's/3\.[0-9]/3.x/' \
-				 -e 's/[4-9]\.[0-9]/4.x/')
+				 -e 's/[4-9]\(\.[0-9]\)\?/4.x/')
 endif
 
 ifneq (, $(findstring Sun, $(CC_LONGVER)))
@@ -882,7 +882,7 @@ ifeq		($(CC_NAME), suncc)
 			# -Dinline="" # add this if cc < 5.3 (define inline as null)
 else
 ifeq		($(CC_NAME), clang)
-			CFLAGS+=$(CC_OPTIMIZE_FLAG) -funroll-loops
+			CFLAGS+=$(CC_OPTIMIZE_FLAG) -Wall -funroll-loops
 else
 				#other compilers
 $(error 			Unsupported compiler ($(CC):$(CC_NAME)), try gcc)
@@ -949,7 +949,7 @@ ifeq		($(CC_NAME), suncc)
 				# -Dinline="" # add this if cc < 5.3 (define inline as null)
 else
 ifeq		($(CC_NAME), clang)
-			CFLAGS+=$(CC_OPTIMIZE_FLAG) -funroll-loops
+			CFLAGS+=$(CC_OPTIMIZE_FLAG) -Wall -funroll-loops
 else
 				#other compilers
 $(error 			Unsupported compiler ($(CC):$(CC_NAME)), try gcc)
@@ -1649,5 +1649,13 @@ $(warning	No locking method found so far, trying SYS V sems)
 		found_lock_method=yes
 endif
 
+## Unit Testing - required extensions
+ifeq (1,$(shell grep -c '^\DEFS+= -DUNIT_TESTS' Makefile.conf))
+DEFS := $(DEFS) -DUNIT_TESTS
+LIBS := $(LIBS) -ltap
+test_src := $(shell find . -wholename "*/test/*\.c" | grep -v "^./modules/")
+test_objs := $(test_src:.c=.o)
+objs := $(objs) $(test_objs)
+endif
 
 endif  # ifeq ($(makefile_defs, 1)

@@ -4,7 +4,7 @@
 	
 	<title>&adminguide;</title>
 	
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para>
 		The module implements SIP based operations over the messages
@@ -15,7 +15,7 @@
 	</para>
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -47,10 +47,10 @@
 	</section>
 
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
 
-	<section>
+	<section id="func_append_to_reply" xreflabel="append_to_reply()">
 		<title>
 		<function moreinfo="none">append_to_reply(txt)</function>
 		</title>
@@ -81,7 +81,7 @@ append_to_reply("Foo: $rm at $Ts\r\n");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_append_hf" xreflabel="append_hf()">
 		<title>
 		<function moreinfo="none">append_hf(txt)</function>
 		</title>
@@ -118,7 +118,7 @@ append_hf("From-username: $fU\r\n");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_append_hf_2" xreflabel="append_hf()">
 		<title>
 		<function moreinfo="none">append_hf(txt, hdr)</function>
 		</title>
@@ -154,7 +154,7 @@ append_hf("From-username: $fU\r\n", "Call-ID");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_insert_hf" xreflabel="insert_hf()">
 		<title>
 		<function moreinfo="none">insert_hf(txt)</function>
 		</title>
@@ -186,7 +186,7 @@ insert_hf("To-username: $tU\r\n");
 	</section>
 
 
-	<section>
+	<section id="func_insert_hf_2" xreflabel="insert_hf()">
 		<title>
 		<function moreinfo="none">insert_hf(txt, hdr)</function>
 		</title>
@@ -222,7 +222,7 @@ insert_hf("To-username: $tU\r\n", "Call-ID");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_append_urihf" xreflabel="append_urihf()">
 		<title>
 		<function moreinfo="none">append_urihf(prefix, suffix)</function>
 		</title>
@@ -257,7 +257,7 @@ append_urihf("CC-Diversion: ", "\r\n");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_is_present_hf" xreflabel="is_present_hf()">
 		<title>
 		<function moreinfo="none">is_present_hf(hf_name)</function>
 		</title>
@@ -305,7 +305,7 @@ if (is_present_hf("From")) log(1, "From HF Present");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_append_time" xreflabel="append_time()">
 		<title>
 		<function moreinfo="none">append_time()</function>
 		</title>
@@ -362,7 +362,7 @@ append_time();
 		</example>
 	</section>
 
-	<section>
+	<section id="func_is_method" xreflabel="is_method()">
 		<title>
 		<function moreinfo="none">is_method(name)</function>
 		</title>
@@ -415,7 +415,7 @@ if(is_method("OPTION|UPDATE"))
 		</example>
 	</section>
 
-	<section>
+	<section id="func_remove_hf" xreflabel="remove_hf()">
 		<title>
 		<function moreinfo="none">remove_hf(hname [,flags])</function>
 		</title>
@@ -488,7 +488,7 @@ remove_hf("^X-g.+[0-9]", "r");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_has_body_part" xreflabel="has_body_part()">
 		<title>
 		<function moreinfo="none">has_body_part([mime])</function>,
 		</title>
@@ -514,13 +514,26 @@ if(has_body_part("application/sdp"))
 		</example>
 	</section>
 
-	<section>
+	<section id="func_is_audio_on_hold" xreflabel="is_audio_on_hold()">
 		<title>
 		<function moreinfo="none">is_audio_on_hold()</function>
 		</title>
 		<para>
 		The function returns <emphasis>true</emphasis> if the SIP message
 		has an SDP body attached and at least one audio stream in on hold.
+		The return code of the function indicates the detected hold type:
+		<itemizedlist>
+		<listitem>
+			<para><emphasis>1</emphasis> - RFC2543 hold type:
+			null connection IP detected
+			</para>
+		</listitem>
+		<listitem>
+			<para><emphasis>2</emphasis> - RFC3264 hold type:
+			inactive or sendonly attributes detected
+			</para>
+		</listitem>
+		</itemizedlist>
 		</para>
 
 		<para>
@@ -533,14 +546,22 @@ if(has_body_part("application/sdp"))
 ...
 if(is_audio_on_hold())
 {
-    # do interesting stuff here
+    switch ($rc) {
+    case 1:
+        # RFC2543 hold type
+    	# do interesting stuff here
+        break;
+    case 2:
+        # RFC3264 hold type
+    	# do interesting stuff here
+        break;
 }
 ...
 </programlisting>
 		</example>
 	</section>
 
-	<section>
+	<section id="func_is_privacy" xreflabel="is_privacy()">
 		<title>
 		<function moreinfo="none">is_privacy(privacy_type)</function>
 		</title>
@@ -569,7 +590,7 @@ if(is_privacy("id"))
 		</example>
 	</section>
 
-	<section>
+	<section id="func_remove_body_part" xreflabel="remove_body_part()">
 		<title>
 		<function moreinfo="none">remove_body_part([mime[,revert]]),</function>
 		</title>
@@ -618,9 +639,9 @@ remove_body_part("application/sdp","revert")
 		</example>
 	</section>
 
-	<section>
+	<section id="func_add_body_part" xreflabel="add_body_part()">
 		<title>
-		<function moreinfo="none">add_body_part(body,mime)</function>
+		<function moreinfo="none">add_body_part(body,mime[,headers])</function>
 		</title>
 		<para>
 		This function can be used to add a new body part to the message body.
@@ -639,6 +660,13 @@ remove_body_part("application/sdp","revert")
 			part to be added.
 			</para>
 		</listitem>
+		<listitem>
+			<para><emphasis>headers</emphasis> - optional list of SIP headers
+			(fully defined, including the header separator) to be pushed into
+			this part next to the <emphasis>Content-Type</emphasis> header.
+			</para>
+		</listitem>
+
 		</itemizedlist>
 
 		<para>
@@ -655,7 +683,7 @@ add_body_part("Hello World!", "text/plain");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_sipmsg_validate" xreflabel="sipmsg_validate()">
 		<title>
 		<function moreinfo="none">sipmsg_validate([flags[,result_pvar]])</function>
 		</title>
@@ -784,7 +812,7 @@ if(!sipmsg_validate("sh"))
 
 
 
-	<section>
+	<section id="func_codec_exists" xreflabel="codec_exists()">
 		<title>
 		<function moreinfo="none">codec_exists (name [,clock] )</function>
 		</title>
@@ -811,7 +839,7 @@ codec_exists("GSM","8000");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_codec_delete" xreflabel="codec_delete()">
 		<title>
 		<function moreinfo="none">codec_delete (name [,clock] )</function>
 		</title>
@@ -841,7 +869,7 @@ codec_delete("GSM","8000");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_codec_move_up" xreflabel="codec_move_up()">
 		<title>
 		<function moreinfo="none">codec_move_up (name [,clock] )</function>
 		</title>
@@ -871,7 +899,7 @@ codec_move_up("GSM","8000");
 		</example>
 	</section>
 
-		<section>
+		<section id="func_codec_move_down" xreflabel="codec_move_down()">
 		<title>
 		<function moreinfo="none">codec_move_down (name [,clock] )</function>
 		</title>
@@ -919,7 +947,7 @@ codec_move_up("speex");
 	</section>
 
 
-	<section>
+	<section id="func_codec_exists_re" xreflabel="codec_exists_re()">
 		<title>
 		<function moreinfo="none">codec_exists_re ( regexp )</function>
 		</title>
@@ -943,7 +971,7 @@ codec_exists_re("sp[a-z]*");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_codec_delete_re" xreflabel="codec_delete_re()">
 		<title>
 		<function moreinfo="none">codec_delete_re ( regexp )</function>
 		</title>
@@ -968,7 +996,7 @@ codec_delete_re("PCMA|PCMU");
 		</example>
 	</section>
 
-        <section>
+        <section id="func_codec_delete_except_re" xreflabel="codec_delete_except_re()">
 		<title>
 		<function moreinfo="none">codec_delete_except_re ( regexp )</function>
 		</title>
@@ -991,7 +1019,7 @@ codec_delete_except_re("PCMA|PCMU");#will delete all codecs except PCMA and PCMU
 		</example>
 	</section>
 
-	<section>
+	<section id="func_codec_move_up_re" xreflabel="codec_move_up_re()">
 		<title>
 		<function moreinfo="none">codec_move_up_re ( regexp )</function>
 		</title>
@@ -1015,7 +1043,7 @@ codec_move_up_re("sp[a-z]*");
 		</example>
 	</section>
 
-		<section>
+		<section id="func_codec_move_down_re" xreflabel="codec_move_down_re()">
 		<title>
 		<function moreinfo="none">codec_move_down_re ( regexp )</function>
 		</title>
@@ -1095,7 +1123,7 @@ onreply_route {
 	</example>
     </section>
 
-	<section>
+	<section id="func_stream_exists" xreflabel="stream_exists()">
 		<title>
 		<function moreinfo="none">stream_exists(regexp)</function>
 		</title>
@@ -1128,7 +1156,7 @@ stream_exists("image");
 		</example>
 	</section>
 
-	<section>
+	<section id="func_stream_delete" xreflabel="stream_delete()">
 		<title>
 		<function moreinfo="none">stream_delete(regexp)</function>
 		</title>
@@ -1162,6 +1190,155 @@ stream_delete("video");
 		</example>
 	</section>
 
+	<section id="func_list_hdr_has_option" xreflabel="list_hdr_has_option()">
+		<title>
+		<function moreinfo="none">list_hdr_has_option(hdr_name,option)</function>
+		</title>
+		<para>
+		Checks and returns true if the given option/token is listed in the 
+		body of the given header. The header must have its body formated as a 
+		CSV list of tokens/option (like the Supported, Require,
+		Content-Dispsition headers)
+		body format
+		</para>
+		<para>Meaning of the parameters is as follows:</para>
+		<itemizedlist>
+		<listitem>
+		<para><emphasis>hdr_name</emphasis> - the name of the header to be 
+		checked. Note that all instances of that header will be checked (if the
+		header has multiple instances in the SIP message). Any kind of header
+		name is supported - RFC3261 standard, RFC extensions or custom names.
+		</para>
+		</listitem>
+		<listitem>
+		<para><emphasis>opt</emphasis> - the option/tolen to be searched for.
+		</para>
+		</listitem>
+		</itemizedlist>
+		<para>
+		<para>
+		The function returns true if the options was found listed in one of the
+		header instances. If no header was found, if the option was not found
+		or if there was a parsing or runtime error, false will be returned.
+		</para>
+		This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE,
+		FAILURE_ROUTE, BRANCH_ROUTE and LOCAL_ROUTE.
+		</para>
+		<example>
+		<title><function>list_hdr_has_option</function> usage</title>
+		<programlisting format="linespecific">
+...
+# check if 100rel is advertised
+if (list_hdr_has_option("Supported","100rel")) 
+	xlog("100rel option founded\n");
+...
+</programlisting>
+		</example>
+	</section>
+
+	<section id="func_list_hdr_add_option" xreflabel="list_hdr_add_option()">
+		<title>
+		<function moreinfo="none">list_hdr_add_option(hdr_name,option)</function>
+		</title>
+		<para>
+		Add a new option/token at the end of the list in the body of the given
+		header. The header must have its body formated as a 
+		CSV list of tokens/option (like the Supported, Require,
+		Content-Disposition headers) body format
+		</para>
+		<para>
+		Multiple add / remove operations can be performed over the same header.
+		</para>
+		<para>Meaning of the parameters is as follows:</para>
+		<itemizedlist>
+		<listitem>
+		<para><emphasis>hdr_name</emphasis> - the name of the header where the
+		option has to be added. If multiple instances of that header are 
+		present in the SIP message, the add will be performed on the first
+		instance. Any kind of header name is supported - RFC3261 standard,
+		RFC extensions or custom names.
+		</para>
+		</listitem>
+		<listitem>
+		<para><emphasis>opt</emphasis> - the option/token to be added to the 
+		CSV list. Note there is not verification for duplicated (if the newly
+		added option is not already present in the header).
+		</para>
+		</listitem>
+		</itemizedlist>
+		<para>
+		<para>
+		The function returns true if the options was successfully added to
+		the listed of the given header. If no header was found or if there was
+		a parsing or runtime error, false will be returned.
+		</para>
+		This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE,
+		FAILURE_ROUTE, BRANCH_ROUTE and LOCAL_ROUTE.
+		</para>
+		<example>
+		<title><function>list_hdr_add_option</function> usage</title>
+		<programlisting format="linespecific">
+...
+# add 100rel for advertising
+if (!list_hdr_has_option("Supported","100rel")) 
+    list_hdr_add_option("Supported","100rel");
+</programlisting>
+		</example>
+	</section>
+
+	<section id="func_list_hdr_remove_option" xreflabel="list_hdr_remove_option()">
+		<title>
+		<function moreinfo="none">list_hdr_remove_option(hdr_name,option)</function>
+		</title>
+		<para>
+		Removes an option/token from the list inside the body of the given
+		header. The header must have its body formated as a 
+		CSV list of tokens/option (like the Supported, Require,
+		Content-Dispsition headers)
+		body format
+		</para>
+		<para>
+		Multiple add / remove operations can be performed over the same header.
+		</para>
+		<para>Meaning of the parameters is as follows:</para>
+		<itemizedlist>
+		<listitem>
+		<para><emphasis>hdr_name</emphasis> - the name of the header where the
+		option has to be removed from. If the option is duplicated in the same
+		header, only the last one will be removed. If multiple instances of 
+		that header are present in the SIP message, the remove will be 
+		performed on all instance instance. Any kind of header name is
+		supported - RFC3261 standard, RFC extensions or custom names.
+		</para>
+		</listitem>
+		<listitem>
+		<para><emphasis>opt</emphasis> - the option/token to be removed from
+		the CSV list. Note that if this the only option in the header, the 
+		whole header will be removed.
+		</para>
+		</listitem>
+		</itemizedlist>
+		<para>
+		<para>
+		The function returns true if the options was successfully removed from
+		at least one heaer instance. If no header was found or if the 
+		token was not found or if there was a parsing or runtime error, false
+		will be returned.
+		</para>
+		This function can be used from REQUEST_ROUTE, ONREPLY_ROUTE,
+		FAILURE_ROUTE, BRANCH_ROUTE and LOCAL_ROUTE.
+		</para>
+		<example>
+		<title><function>list_hdr_remove_option</function> usage</title>
+		<programlisting format="linespecific">
+...
+# add 100rel for advertising
+if (list_hdr_has_option("Supported","100rel")) 
+    list_hdr_remove_option("Supported","100rel");
+list_hdr_add_option("Supported","optionX");
+</programlisting>
+		</example>
+	</section>
 
 
 	</section>

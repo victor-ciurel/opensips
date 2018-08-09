@@ -30,6 +30,7 @@
 #include "dlg_timer.h"
 #include "dlg_hash.h"
 #include "dlg_req_within.h"
+#include "dlg_replication.h"
 
 struct dlg_timer *d_timer = 0;
 dlg_timer_handler timer_hdl = 0;
@@ -910,7 +911,7 @@ void dlg_options_routine(unsigned int ticks , void * attr)
 		init_dlg_term_reason(dlg,"Ping Timeout",sizeof("Ping Timeout")-1);
 		/* FIXME - maybe better not to send BYE both ways as we know for
 		 * sure one end in down . */
-		dlg_end_dlg(dlg,0);
+		dlg_end_dlg(dlg,0,1);
 
 		/* no longer reffed in list */
 		unref_dlg(dlg,1);
@@ -942,6 +943,11 @@ void dlg_options_routine(unsigned int ticks , void * attr)
 
 		dlg = it->dlg;
 		next=it->next;
+
+		if (dialog_repl_cluster && get_shtag_state(dlg) == SHTAG_STATE_BACKUP) {
+			it = next;
+			continue;
+		}
 
 		/* do not ping ended dialogs - we might have missed them earlier or
 		 * might have terminated in the mean time - we'll clean them up on
@@ -1008,7 +1014,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 		init_dlg_term_reason(dlg,"ReINVITE Ping Timeout",sizeof("ReINVITE Ping Timeout")-1);
 		/* FIXME - maybe better not to send BYE both ways as we know for
 		 * sure one end in down . */
-		dlg_end_dlg(dlg,0);
+		dlg_end_dlg(dlg,0,1);
 
 		/* no longer reffed in list */
 		unref_dlg(dlg,1);
@@ -1041,14 +1047,20 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 		dlg = it->dlg;
 		next=it->next;
 
+		if (dialog_repl_cluster && get_shtag_state(dlg) == SHTAG_STATE_BACKUP) {
+			it = next;
+			continue;
+		}
+
 		/* do not ping ended dialogs - we might have missed them earlier or
 		 * might have terminated in the mean time - we'll clean them up on
 		 * our next iteration */
 		if (dlg->state != DLG_STATE_DELETED && it->timeout <= current_ticks) {
 			if (dlg->flags & DLG_FLAG_REINVITE_PING_CALLER) {
-				if (dlg->legs[callee_idx(dlg)].th_sent_contact.len)
+
+				if (dlg->legs[DLG_CALLER_LEG].adv_contact.len)
 					extra_headers.len = 
-					dlg->legs[callee_idx(dlg)].th_sent_contact.len +
+					dlg->legs[DLG_CALLER_LEG].adv_contact.len +
 					HEADERS_STR_END_NOCRLF_LEN;
 				else
 					extra_headers.len = CONTACT_STR_START_LEN +
@@ -1060,13 +1072,13 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 					it = it->next;
 					return;
 				}
-						
-				if (dlg->legs[callee_idx(dlg)].th_sent_contact.len) {
-					p = extra_headers.s;
-					memcpy(p,dlg->legs[callee_idx(dlg)].th_sent_contact.s,
-					dlg->legs[callee_idx(dlg)].th_sent_contact.len);
 
-					p+= dlg->legs[callee_idx(dlg)].th_sent_contact.len;
+				if (dlg->legs[DLG_CALLER_LEG].adv_contact.len) {
+					p = extra_headers.s;
+					memcpy(p,dlg->legs[DLG_CALLER_LEG].adv_contact.s,
+					dlg->legs[DLG_CALLER_LEG].adv_contact.len);
+
+					p+= dlg->legs[DLG_CALLER_LEG].adv_contact.len;
 					memcpy(p,HEADERS_STR_END_NOCRLF,HEADERS_STR_END_NOCRLF_LEN);
 				} else {
 					p = extra_headers.s;
@@ -1081,7 +1093,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 				
 				ref_dlg(dlg,1);
 				if (send_leg_msg(dlg,&invite_str,callee_idx(dlg),
-				DLG_CALLER_LEG,&extra_headers,&dlg->legs[callee_idx(dlg)].sdp,
+				DLG_CALLER_LEG,&extra_headers,&dlg->legs[DLG_CALLER_LEG].adv_sdp,
 				reinvite_reply_from_caller,dlg,unref_dlg_cb,
 				&dlg->legs[DLG_CALLER_LEG].reinvite_confirmed) < 0) {
 					LM_ERR("failed to ping caller\n");
@@ -1091,10 +1103,11 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 				pkg_free(extra_headers.s);
 			}
 
+
 			if (dlg->flags & DLG_FLAG_REINVITE_PING_CALLEE) {
-				if (dlg->legs[DLG_CALLER_LEG].th_sent_contact.len)
+				if (dlg->legs[callee_idx(dlg)].adv_contact.len)
 					extra_headers.len = 
-					dlg->legs[DLG_CALLER_LEG].th_sent_contact.len +
+					dlg->legs[callee_idx(dlg)].adv_contact.len +
 					HEADERS_STR_END_NOCRLF_LEN;
 				else
 					extra_headers.len = CONTACT_STR_START_LEN +
@@ -1107,13 +1120,13 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 					return ;
 				}
 						
-				if (dlg->legs[DLG_CALLER_LEG].th_sent_contact.len) {
+				if (dlg->legs[callee_idx(dlg)].adv_contact.len) {
 					p = extra_headers.s;
 					memcpy(extra_headers.s,
-					dlg->legs[DLG_CALLER_LEG].th_sent_contact.s,
-					dlg->legs[DLG_CALLER_LEG].th_sent_contact.len);
+					dlg->legs[callee_idx(dlg)].adv_contact.s,
+					dlg->legs[callee_idx(dlg)].adv_contact.len);
 
-					p+= dlg->legs[DLG_CALLER_LEG].th_sent_contact.len;
+					p+= dlg->legs[callee_idx(dlg)].adv_contact.len;
 					memcpy(p,HEADERS_STR_END_NOCRLF,HEADERS_STR_END_NOCRLF_LEN);
 				} else {
 					p = extra_headers.s;
@@ -1128,7 +1141,7 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 
 				ref_dlg(dlg,1);
 				if (send_leg_msg(dlg,&invite_str,DLG_CALLER_LEG,
-				callee_idx(dlg),&extra_headers,&dlg->legs[DLG_CALLER_LEG].sdp,reinvite_reply_from_callee,
+				callee_idx(dlg),&extra_headers,&dlg->legs[callee_idx(dlg)].adv_sdp,reinvite_reply_from_callee,
 				dlg,unref_dlg_cb,&dlg->legs[callee_idx(dlg)].reinvite_confirmed) < 0) {
 					LM_ERR("failed to ping callee\n");
 					unref_dlg(dlg,1);
@@ -1141,7 +1154,6 @@ void dlg_reinvite_routine(unsigned int ticks , void * attr)
 			detach_ping_node_unsafe(it,1);
 			unsafe_insert_reinvite_ping_timer(it,reinvite_ping_interval);
 		}
-		it = it->next;
 		it = next;
 	}
 

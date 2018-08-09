@@ -230,9 +230,22 @@ static int topo_delete_record_routes(struct sip_msg *req)
 				if (!(foo->flags&LUMPFLAG_SHMEM))
 					pkg_free(foo);
 			}
-			if(lump == req->add_rm)
-				req->add_rm = lump->next;
-			else
+			if (lump == req->add_rm) {
+				if (lump->flags&LUMPFLAG_SHMEM) {
+					/*
+					 * if the chunk is in shm, we cannot remove it, because
+					 * it be in the middle of the big shm chunk
+					 * therefore we simply mark it as false and move on
+					 */
+					if (lump->after)
+						insert_cond_lump_after(lump, COND_FALSE, 0);
+					if (lump->before)
+						insert_cond_lump_before(lump, COND_FALSE, 0);
+				} else {
+					req->add_rm = lump->next;
+				}
+				prev_crt = lump;
+			} else
 				prev_crt->next = lump->next;
 			if (!(lump->flags&LUMPFLAG_SHMEM))
 				free_lump(lump);
@@ -1302,7 +1315,7 @@ static int dlg_th_needs_decoding(struct sip_msg *msg)
 static inline char *dlg_th_rebuild_req(struct sip_msg *msg,int *len)
 {
 	return build_req_buf_from_sip_req(msg,(unsigned int*)len,
-			NULL,PROTO_NONE,MSG_TRANS_NOVIA_FLAG);
+			NULL,PROTO_NONE,NULL,MSG_TRANS_NOVIA_FLAG);
 }
 
 static inline char *dlg_th_rebuild_rpl(struct sip_msg *msg,int *len)
@@ -1343,7 +1356,7 @@ static int dlg_th_callid_pre_parse(struct sip_msg *msg,int want_from)
 	}
 
 	if (parse_from_header(msg)<0 || msg->from==NULL || get_from(msg)==NULL) {
-		LM_ERR("cannot parse TO header\n");
+		LM_ERR("cannot parse FROM header\n");
 		goto error;
 	}
 

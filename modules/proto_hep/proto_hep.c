@@ -435,7 +435,7 @@ poll_loop:
 		}
 	}
 
-	if (pf.events&POLLOUT)
+	if (pf.revents&POLLOUT)
 		goto again;
 
 	/* some other events triggered by poll - treat as errors */
@@ -641,7 +641,14 @@ inline static int _hep_write_on_socket(struct tcp_connection *c, int fd,
 
 	lock_get(&c->write_lock);
 	if (hep_async) {
-		n=async_tsend_stream(c,fd,buf,len, hep_async_local_write_timeout);
+		/*
+		 * if there is any data pending to write, we have to wait for those chunks
+		 * to be sent, otherwise we will completely break the messages' order
+		 */
+		if (((struct hep_data*)c->proto_data)->async_chunks_no)
+			n = add_write_chunk(c, buf, len, 0);
+		else
+			n = async_tsend_stream(c,fd,buf,len, hep_async_local_write_timeout);
 	} else {
 		n = tsend_stream(fd, buf, len, hep_send_timeout);
 	}
@@ -841,7 +848,7 @@ static void hep_parse_headers(struct tcp_req *req){
 	}
 }
 
-int tcp_read(struct tcp_connection *c,struct tcp_req *r) {
+static int _tcp_read(struct tcp_connection *c,struct tcp_req *r) {
 	int bytes_free, bytes_read;
 	int fd;
 
@@ -864,6 +871,7 @@ again:
 		} else if (errno == ECONNRESET) {
 			c->state=S_CONN_EOF;
 			LM_DBG("EOF on %p, FD %d\n", c, fd);
+			bytes_read = 0;
 		} else {
 			LM_ERR("error reading: %s\n",strerror(errno));
 			r->error=TCP_READ_ERROR;
@@ -970,7 +978,7 @@ static inline int hep_handle_req(struct tcp_req *req,
 
 		/* skip receive msg if we were told so from at least one callback */
 		if ( ret != HEP_SCRIPT_SKIP ) {
-			if ( receive_msg(msg_buf, msg_len, &local_rcv, ctx) <0 ) {
+			if ( receive_msg(msg_buf, msg_len, &local_rcv, ctx, 0) <0 ) {
 				LM_ERR("receive_msg failed \n");
 			}
 		} else {
@@ -1079,7 +1087,7 @@ static int hep_tcp_read_req(struct tcp_connection* con, int* bytes_read)
 		if (req->parsed < req->pos){
 			bytes=0;
 		} else {
-			bytes=tcp_read(con,req);
+			bytes=_tcp_read(con,req);
 			if (bytes < 0) {
 				LM_ERR("failed to read \n");
 				goto error;
@@ -1193,11 +1201,7 @@ static int hep_udp_read_req(struct socket_info *si, int* bytes_read)
 {
 	struct receive_info ri;
 	int len;
-#ifdef DYN_BUF
-	char* buf;
-#else
 	static char buf [BUF_SIZE+1];
-#endif
 	unsigned int fromlen;
 	str msg;
 
@@ -1206,14 +1210,6 @@ static int hep_udp_read_req(struct socket_info *si, int* bytes_read)
 	int ret = 0;
 
 	context_p ctx=NULL;
-
-#ifdef DYN_BUF
-	buf=pkg_malloc(BUF_SIZE+1);
-	if (buf==0){
-		LM_ERR("could not allocate receive buffer\n");
-		goto error;
-	}
-#endif
 
 	fromlen=sockaddru_len(si->su);
 	len=recvfrom(bind_address->socket, buf, BUF_SIZE,0,&ri.src_su.s,&fromlen);
@@ -1317,7 +1313,7 @@ static int hep_udp_read_req(struct socket_info *si, int* bytes_read)
 
 	if (ret != HEP_SCRIPT_SKIP) {
 		/* receive_msg must free buf too!*/
-		receive_msg( msg.s, msg.len, &ri, ctx);
+		receive_msg( msg.s, msg.len, &ri, ctx, 0);
 	} else {
 		if ( ctx ) {
 			context_free( ctx );

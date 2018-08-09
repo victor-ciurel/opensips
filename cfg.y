@@ -444,6 +444,7 @@ static struct multi_str *tmp_mod;
 %token CR
 %token COLON
 %token ANY
+%token ANYCAST
 %token SCRIPTVARERR
 
 
@@ -461,7 +462,7 @@ static struct multi_str *tmp_mod;
 %type <sockid> listen_def
 %type <sockid> id_lst
 %type <sockid> alias_def
-%type <sockid> phostport
+%type <sockid> phostport panyhostport
 %type <intval> proto port any_proto
 %type <strval> host_sep
 %type <intval> equalop compop matchop strop intop
@@ -573,6 +574,10 @@ phostport: proto COLON listen_id	{ $$=mk_listen_id($3, $1, 0); }
 			}
 			;
 
+panyhostport: proto COLON MULT				{ $$=mk_listen_id(0, $1, 0); }
+			| proto COLON MULT COLON port	{ $$=mk_listen_id(0, $1, $5); }
+			;
+
 alias_def:	listen_id						{ $$=mk_listen_id($1, PROTO_NONE, 0); }
 		 |	ANY COLON listen_id				{ $$=mk_listen_id($3, PROTO_NONE, 0); }
 		 |	ANY COLON listen_id COLON port	{ $$=mk_listen_id($3, PROTO_NONE, $5); }
@@ -588,21 +593,43 @@ id_lst:		alias_def		{  $$=$1 ; }
 		;
 
 
-listen_def:	phostport				{ $$=$1; }
+listen_def:	panyhostport			{ $$=$1; }
+			| panyhostport USE_CHILDREN NUMBER { $$=$1; $$->children=$3; }
+			| phostport				{ $$=$1; }
+			| phostport ANYCAST		{ $$=$1; $$->flags=SI_IS_ANYCAST; }
 			| phostport USE_CHILDREN NUMBER { $$=$1; $$->children=$3; }
+			| phostport ANYCAST USE_CHILDREN NUMBER {
+				$$=$1; $$->children=$4; $$->flags=SI_IS_ANYCAST;
+				}
 			| phostport AS listen_id {
 				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, 5060);
+				}
+			| phostport AS listen_id ANYCAST {
+				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, 5060);
+				$$->flags=SI_IS_ANYCAST;
 				}
 			| phostport AS listen_id USE_CHILDREN NUMBER {
 				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, 5060);
 				$1->children=$5;
 				}
-			| phostport AS listen_id COLON port{
+			| phostport AS listen_id ANYCAST USE_CHILDREN NUMBER {
+				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, 5060);
+				$1->children=$6; $$->flags=SI_IS_ANYCAST;
+				}
+			| phostport AS listen_id COLON port {
 				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, $5);
+				}
+			| phostport AS listen_id COLON port ANYCAST {
+				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, $5);
+				$$->flags=SI_IS_ANYCAST;
 				}
 			| phostport AS listen_id COLON port USE_CHILDREN NUMBER {
 				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, $5);
 				$1->children=$7;
+				}
+			| phostport AS listen_id COLON port ANYCAST USE_CHILDREN NUMBER {
+				$$=$1; set_listen_id_adv((struct socket_id *)$1, $3, $5);
+				$1->children=$8; $$->flags=SI_IS_ANYCAST;
 				}
 			;
 
@@ -938,7 +965,7 @@ assign_stm: DEBUG EQUAL snumber
 		| XLOG_FORCE_COLOR EQUAL error { yyerror("boolean value expected"); }
 		| XLOG_DEFAULT_LEVEL EQUAL error { yyerror("number expected"); }
 		| LISTEN EQUAL listen_def {
-							if (add_listener($3, 0)!=0){
+							if (add_listener($3)!=0){
 								LM_CRIT("cfg. parser: failed"
 										" to add listen address\n");
 								break;
@@ -1081,14 +1108,7 @@ assign_stm: DEBUG EQUAL snumber
 							}
 		 }
 		| TOS EQUAL error { yyerror("number expected"); }
-		| MPATH EQUAL STRING { mpath=$3; strcpy(mpath_buf, $3);
-								mpath_len=strlen($3);
-								if(mpath_len==0 || mpath_buf[mpath_len-1]!='/') {
-									mpath_buf[mpath_len]='/';
-									mpath_len++;
-									mpath_buf[mpath_len]='\0';
-								}
-							}
+		| MPATH EQUAL STRING { set_mpath($3); }
 		| MPATH EQUAL error  { yyerror("string value expected"); }
 		| DISABLE_DNS_FAILOVER EQUAL NUMBER {
 										disable_dns_failover=$3;
@@ -1893,6 +1913,16 @@ route_param: STRING {
 							$$=$1+1;
 						}
 			}
+		| route_param COMMA NULLV {
+						if ($1+1>=MAX_ACTION_ELEMS) {
+							yyerror("too many arguments in function\n");
+							$$=-1;
+						} else {
+							route_elems[$1].type = NULLV_ST;
+							route_elems[$1].u.data = 0;
+							$$=$1+1;
+						}
+			}
 	;
 
 async_func: ID LPAREN RPAREN {
@@ -2286,8 +2316,13 @@ cmd:	 FORWARD LPAREN STRING RPAREN	{ mk_action2( $$, FORWARD_T,
 								}
 		| FORCE_SEND_SOCKET error {$$=0; yyerror("missing '(' or ')' ?"); }
 		| SERIALIZE_BRANCHES LPAREN NUMBER RPAREN {
+								mk_action1( $$, SERIALIZE_BRANCHES_T,
+									NUMBER_ST, (void*)(long)$3);
+								}
+		| SERIALIZE_BRANCHES LPAREN NUMBER COMMA NUMBER RPAREN {
 								mk_action2( $$, SERIALIZE_BRANCHES_T,
-									NUMBER_ST, 0, (void*)(long)$3, 0);
+									NUMBER_ST, NUMBER_ST,
+									(void*)(long)$3, (void*)(long)$5);
 								}
 		| SERIALIZE_BRANCHES LPAREN error RPAREN {$$=0; yyerror("bad argument,"
 								" number expected");
@@ -2615,7 +2650,7 @@ cmd:	 FORWARD LPAREN STRING RPAREN	{ mk_action2( $$, FORWARD_T,
 
 %%
 
-static inline void warn(char* s)
+static inline void ALLOW_UNUSED warn(char* s)
 {
 	LM_WARN("warning in config file %s, line %d, column %d-%d: %s\n",
 			get_cfg_file_name, line, startcolumn, column, s);

@@ -31,7 +31,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-struct stat_var_;
+#include "pt_load.h"
 
 #define MAX_PT_DESC	128
 
@@ -40,6 +40,9 @@ struct process_table {
 	int pid;
 	/* name/description of the process (null terminated) */
 	char desc[MAX_PT_DESC];
+
+	/* various flags describing properties of this process */
+	unsigned int flags;
 
 	/* pipe used by the process to receive designated jobs (used by IPC)
 	 * [1] for writting into by other process,
@@ -57,7 +60,7 @@ struct process_table {
 	int default_log_level;
 
 	/* the load statistic of this process */
-	struct stat_var_ *load;
+	struct proc_load load;
 };
 
 typedef void(*forked_proc_func)(int i);
@@ -68,11 +71,14 @@ extern unsigned int counted_processes;
 
 int   init_multi_proc_support();
 void  set_proc_attrs( char *fmt, ...);
-pid_t internal_fork(char *proc_desc);
-int count_init_children(int flags);
+int   count_init_children(int flags);
 
-/* @return: -1 or the index of the given process */
-int id_of_pid(pid_t pid);
+#define OSS_FORK_NO_IPC        (1<<0)
+#define OSS_FORK_NO_LOAD       (1<<1)
+#define OSS_FORK_IS_EXTRA      (1<<2)
+#define OSS_TAKING_A_DUMP      (1<<3) /* this process is writing a corefile */
+
+pid_t internal_fork(char *proc_desc, unsigned int flags);
 
 /* return processes pid */
 inline static int my_pid(void)
@@ -80,5 +86,17 @@ inline static int my_pid(void)
 	return pt ? pt[process_no].pid : getpid();
 }
 
+/* Get the process internal ID based on its PID 
+ * @return: -1 or the index of the given process */
+inline static int get_process_ID_by_PID(pid_t pid)
+{
+	int i;
+
+	for( i=0 ; i<counted_processes ; i++ )
+		if (pt[i].pid==pid)
+			return i;
+
+	return -1;
+}
 
 #endif

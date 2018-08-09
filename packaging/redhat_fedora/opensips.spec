@@ -360,6 +360,20 @@ events, triggered through the OpenSIPS Event Interface,
 directly from the OpenSIPS script. The module logs the events
 along with their parameters in regular text files.
 
+%package  event_jsonrpc
+Summary:  Sends events using JSON-RPC command
+Group:    System Environment/Daemons
+Requires: %{name} = %{version}-%{release}
+
+%description  event_jsonrpc
+This module is an implementation of an JSON-RPC v2.0 client
+http://www.jsonrpc.org/specification. that can send a RPC to a
+JSON-RPC server (when used in sync_mode), or send a
+notification (when sync_mode is disabled) whenever whenever
+OpenSIPS raises a notification through the Event Interface.
+This module acts as a transport layer for the Event
+Notification Interface.
+
 %package  event_rabbitmq
 Summary:  Event RabbitMQ module
 Group:    System Environment/Daemons
@@ -432,6 +446,18 @@ The "freeswitch" module is a C driver for the FreeSWITCH Event Socket Layer inte
 It can interact with one or more FreeSWITCH servers either by issuing commands to them,
 or by receiving events from them.
 
+%package  freeswitch_scripting
+Summary:  FreeSWITCH events & commands at OpenSIPS script level
+Group:    System Environment/Daemons
+Requires: %{name} = %{version}-%{release}
+
+%description  freeswitch_scripting
+freeswitch_scripting is a helper module that exposes full control over the FreeSWITCH ESL
+interface to the OpenSIPS script.
+It allows the OpenSIPS script writer to subscribe to generic FreeSWITCH ESL events as
+well as to run arbitrary FreeSWITCH ESL commands and interpret their results. It makes
+use of the freeswitch module for the management of ESL connections and event subscriptions.
+
 %package  h350
 Summary:  H350 implementation
 Group:    System Environment/Daemons
@@ -467,6 +493,16 @@ Requires: %{name} = %{version}-%{release}
 %description  json
 This module introduces a new type of variable that provides both serialization and
 de-serialization from JSON format.
+
+%package  jsonrpc
+Summary:  Execute JSON-RPC commands
+Group:    System Environment/Daemons
+Requires: %{name} = %{version}-%{release}
+
+%description  jsonrpc
+This module is an implementation of an JSON-RPC v2.0 client
+http://www.jsonrpc.org/specification. that can send a call
+to a JSON-RPC server over a TCP connection.
 
 %package  ldap
 Summary:  LDAP connector
@@ -881,6 +917,19 @@ encapsulated in SIP. The available operations are: reading and modifying paramet
 from an ISUP message, removing or adding new optional parameters, adding an ISUP part
 to a SIP message body. This is done explicitly via script pseudovariables and functions.
 
+%package  siprec
+Summary:  SIP Recording module
+Group:    System Environment/Daemons
+Requires: %{name} = %{version}-%{release}
+BuildRequires: libuuid-devel
+
+%description  siprec
+This module provides the means to do calls recording using an external/passive recorder -
+the entity that records the call is not in the media path between the caller and callee,
+but it is completely separate, thus it can not affect by any means the quality of the
+conversation. This is done in a standardized manner, using the SIPREC Protocol, thus it
+can be used by any recorder that implements this protocol.
+
 %package  sms
 Summary:  Gateway between SIP and GSM networks via sms
 Group:    System Environment/Daemons
@@ -1041,7 +1090,7 @@ done
 # install systemd files
 install -D -m 0644 -p packaging/redhat_fedora/%{name}.service $RPM_BUILD_ROOT%{_unitdir}/%{name}.service
 install -D -m 0644 -p packaging/redhat_fedora/%{name}.tmpfiles.conf $RPM_BUILD_ROOT%{_sysconfdir}/tmpfiles.d/%{name}.conf
-install -D -m 0755 -p packaging/redhat_fedora/%{name}.m4cfg $RPM_BUILD_ROOT%{_sbindir}/%{name}-m4cfg
+install -D -m 0755 -p packaging/redhat_fedora/%{name}-m4cfg $RPM_BUILD_ROOT%{_sbindir}/%{name}-m4cfg
 mkdir -p $RPM_BUILD_ROOT%{_localstatedir}/run/%{name}
 %else
 install -p -D -m 755 packaging/redhat_fedora/opensips.init $RPM_BUILD_ROOT%{_initrddir}/opensips
@@ -1458,6 +1507,10 @@ fi
 %{_libdir}/opensips/modules/event_flatstore.so
 %doc docdir/README.event_flatstore
 
+%files event_jsonrpc
+%{_libdir}/opensips/modules/event_jsonrpc.so
+%doc docdir/README.event_jsonrpc
+
 %files event_rabbitmq
 %{_libdir}/opensips/modules/event_rabbitmq.so
 %doc docdir/README.event_rabbitmq
@@ -1486,6 +1539,10 @@ fi
 %{_libdir}/opensips/modules/freeswitch.so
 %doc docdir/README.freeswitch
 
+%files freeswitch_scripting
+%{_libdir}/opensips/modules/freeswitch_scripting.so
+%doc docdir/README.freeswitch_scripting
+
 %files h350
 %{_libdir}/opensips/modules/h350.so
 %doc docdir/README.h350
@@ -1501,6 +1558,10 @@ fi
 %files json
 %{_libdir}/opensips/modules/json.so
 %doc docdir/README.json
+
+%files jsonrpc
+%{_libdir}/opensips/modules/jsonrpc.so
+%doc docdir/README.jsonrpc
 
 %files ldap
 %{_libdir}/opensips/modules/ldap.so
@@ -1654,6 +1715,10 @@ fi
 %{_libdir}/opensips/modules/sip_i.so
 %doc docdir/README.sip_i
 
+%files siprec
+%{_libdir}/opensips/modules/siprec.so
+%doc docdir/README.siprec
+
 %files sms
 %{_libdir}/opensips/modules/sms.so
 %doc docdir/README.sms
@@ -1706,6 +1771,10 @@ fi
 %doc docdir/README.xmpp
 
 %changelog
+* Wed Mar 28 2018 Nick Altmann <nick.altmann@gmail.com> - 2.4.0-1
+- Specification updated for opensips 2.4
+- New packages: event_jsonrpc, jsonrpc, siprec
+
 * Mon Mar 06 2017 Nick Altmann <nick.altmann@gmail.com> - 2.3.0-1
 - Specification updated for opensips 2.3
 - New packages: event_routing, freeswitch, mid_registrar, sip_i, xml

@@ -1,46 +1,4 @@
-TLS module
-
-Peter Griffiths
-
-   unknown
-
-Klaus Darilion
-
-   enum.at
-
-Edited by
-
-Klaus Darilion
-
-Edited by
-
-Bogdan-Andrei Iancu
-
-Edited by
-
-Cesc Santasusana
-
-Edited by
-
-Klaus Darilion
-
-Edited by
-
-Christian Lahme
-
-Edited by
-
-Ionut-Razvan Ionita
-
-   Copyright © 2005 Voice Sistem SRL
-
-   Copyright © 2005 Cesc Santasusana
-
-   Copyright © 2006 enum.at
-
-   Copyright © 2013 Secusmart GmbH
-
-   Copyright © 2015 OpenSIPS Solutions
+proto_tls module
      __________________________________________________________
 
    Table of Contents
@@ -71,6 +29,21 @@ Ionut-Razvan Ionita
               1.6.1. tls_trace
 
    2. Frequently Asked Questions
+   3. Contributors
+
+        3.1. By Commit Statistics
+        3.2. By Commit Activity
+
+   4. Documentation
+
+        4.1. Contributors
+
+   List of Tables
+
+   3.1. Top contributors by DevScore^(1), authored commits^(2) and
+          lines added/removed^(3)
+
+   3.2. Most recently active contributors^(1) to this module
 
    List of Examples
 
@@ -240,7 +213,13 @@ listen = tls:1.2.3.4:5061
 
 1.5.2. tls_port (integer)
 
-   Sets the default TLS listening port.
+   The default port to be used for all TLS related operation. Be
+   careful as the default port impacts both the SIP listening part
+   (if no port is defined in the TLS listeners) and the SIP
+   sending part (if the destination URI has no explicit port).
+
+   If you want to change only the listening port for TLS, use the
+   port option in the SIP listener defintion.
 
    Default value is 5061.
 
@@ -320,7 +299,7 @@ modparam("proto_tls", "trace_destination", "hep_dest")
    This controls whether tracing for tls is on or not. You still
    need to define Section 1.5.6, “trace_destination (string)”in
    order to work, but this value will be controlled using mi
-   function Section 1.6.1, “ tls_trace ”.
+   function tls_trace.
    Default value is 0(tracing inactive).
 
    Example 1.7. Set trace_on parameter
@@ -349,9 +328,8 @@ modparam("proto_tls", "trace_on", 1)
    (either the one that accepted the connection or the one that
    initiated a connection) $Ri (ip) and $Rp (port) can be used.
 
-   WARNING: IF Section 1.5.7, “trace_on (int)” is set to 0 or
-   tracing is deactived via the mi command Section 1.6.1, “
-   tls_trace ” this route won't be called.
+   WARNING: IF trace_on is set to 0 or tracing is deactived via
+   the mi command tls_trace this route won't be called.
    Default value is none(no route is set).
 
    Example 1.8. Set trace_filter_route parameter
@@ -389,9 +367,7 @@ route[tls_filter] {
           + off
 
    MI FIFO Command Format:
-                        :tls_trace:_reply_fifo_file_
-                        trace_mode
-                        _empty_line_
+                        opensipsctl fifo tls_trace on
 
 Chapter 2. Frequently Asked Questions
 
@@ -469,3 +445,81 @@ Chapter 2. Frequently Asked Questions
 
        Please follow the guidelines provided at:
        https://github.com/OpenSIPS/opensips/issues.
+
+Chapter 3. Contributors
+
+3.1. By Commit Statistics
+
+   Table 3.1. Top contributors by DevScore^(1), authored
+   commits^(2) and lines added/removed^(3)
+     Name DevScore Commits Lines ++ Lines --
+   1. Bogdan-Andrei Iancu (@bogdan-iancu) 49 22 1486 801
+   2. Eseanu Marius Cristian (@eseanucristian) 45 5 55 2133
+   3. Razvan Crainea (@razvancrainea) 36 19 564 634
+   4. Ionut Ionita (@ionutrazvanionita) 35 14 1232 576
+   5. Liviu Chircu (@liviuchircu) 9 6 27 102
+   6. Vlad Patrascu (@rvlad-patrascu) 5 3 3 7
+   7. Bogdan Chifor 5 2 141 1
+   8. Vlad Paiu (@vladpaiu) 4 2 84 3
+   9. Julián Moreno Patiño 3 1 1 1
+   10. Peter Lemenkov (@lemenkov) 3 1 1 1
+
+   All remaining contributors: Maksym Sobolyev (@sobomax).
+
+   (1) DevScore = author_commits + author_lines_added /
+   (project_lines_added / project_commits) + author_lines_deleted
+   / (project_lines_deleted / project_commits)
+
+   (2) including any documentation-related commits, excluding
+   merge commits. Regarding imported patches/code, we do our best
+   to count the work on behalf of the proper owner, as per the
+   "fix_authors" and "mod_renames" arrays in
+   opensips/doc/build-contrib.sh. If you identify any
+   patches/commits which do not get properly attributed to you,
+   please submit a pull request which extends "fix_authors" and/or
+   "mod_renames".
+
+   (3) ignoring whitespace edits, renamed files and auto-generated
+   files
+
+3.2. By Commit Activity
+
+   Table 3.2. Most recently active contributors^(1) to this module
+                         Name                     Commit Activity
+   1.  Vlad Patrascu (@rvlad-patrascu)          May 2017 - Jul 2018
+   2.  Peter Lemenkov (@lemenkov)               Jun 2018 - Jun 2018
+   3.  Liviu Chircu (@liviuchircu)              Mar 2015 - Jun 2018
+   4.  Bogdan-Andrei Iancu (@bogdan-iancu)      Feb 2015 - Oct 2017
+   5.  Razvan Crainea (@razvancrainea)          Feb 2015 - Sep 2017
+   6.  Maksym Sobolyev (@sobomax)               Jul 2017 - Jul 2017
+   7.  Ionut Ionita (@ionutrazvanionita)        Mar 2015 - Apr 2017
+   8.  Julián Moreno Patiño                     Feb 2016 - Feb 2016
+   9.  Eseanu Marius Cristian (@eseanucristian) Sep 2015 - Sep 2015
+   10. Bogdan Chifor                            Aug 2015 - Aug 2015
+
+   All remaining contributors: Vlad Paiu (@vladpaiu).
+
+   (1) including any documentation-related commits, excluding
+   merge commits
+
+Chapter 4. Documentation
+
+4.1. Contributors
+
+   Last edited by: Peter Lemenkov (@lemenkov), Liviu Chircu
+   (@liviuchircu), Vlad Patrascu (@rvlad-patrascu), Bogdan-Andrei
+   Iancu (@bogdan-iancu), Ionut Ionita (@ionutrazvanionita),
+   Razvan Crainea (@razvancrainea), Eseanu Marius Cristian
+   (@eseanucristian), Vlad Paiu (@vladpaiu).
+
+   Documentation Copyrights:
+
+   Copyright © 2015 www.opensips-solutions.com
+
+   Copyright © 2013 Secusmart GmbH
+
+   Copyright © 2006 enum.at
+
+   Copyright © 2005 Voice Sistem SRL
+
+   Copyright © 2005 Cesc Santasusana

@@ -291,7 +291,7 @@ poll_loop:
 		}
 	}
 
-	if (pf.events&POLLOUT)
+	if (pf.revents&POLLOUT)
 		goto again;
 
 	/* some other events triggered by poll - treat as errors */
@@ -491,7 +491,14 @@ inline static int _bin_write_on_socket(struct tcp_connection *c, int fd,
 
 	lock_get(&c->write_lock);
 	if (bin_async) {
-		n=async_tsend_stream(c,fd,buf,len, bin_async_local_write_timeout);
+		/*
+		 * if there is any data pending to write, we have to wait for those chunks
+		 * to be sent, otherwise we will completely break the messages' order
+		 */
+		if (((struct bin_data*)c->proto_data)->async_chunks_no)
+			n = add_write_chunk(c, buf, len, 0);
+		else
+			n = async_tsend_stream(c,fd,buf,len, bin_async_local_write_timeout);
 	} else {
 		n = tsend_stream(fd, buf, len, bin_send_timeout);
 	}

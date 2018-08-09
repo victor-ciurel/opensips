@@ -161,6 +161,11 @@ extern long *event_shm_last;
 // determines if there is a pending event
 extern int *event_shm_pending;
 
+/* indicates the statistics updates should not be done */
+#ifdef SHM_EXTRA_STATS
+extern int mem_skip_stats;
+#endif
+
 // events are used only if SHM and STATISTICS are used
 void shm_event_raise(long used, long size, long perc);
 
@@ -611,12 +616,16 @@ inline static void shm_status(void)
 }
 
 
-#define shm_info(mi) \
-do{\
-	shm_lock(); \
-	MY_MEMINFO(shm_block, mi); \
-	shm_unlock(); \
-}while(0)
+inline static void shm_info(struct mem_info* mi)
+{
+#ifndef HP_MALLOC
+	shm_lock();
+#endif
+	MY_MEMINFO(shm_block, mi);
+#ifndef HP_MALLOC
+	shm_unlock();
+#endif
+}
 
 /*
  * performs a full shared memory pool scan for any corruptions or inconsistencies

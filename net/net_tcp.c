@@ -45,9 +45,11 @@
 #include "../socket_info.h"
 #include "../ut.h"
 #include "../pt.h"
+#include "../pt_load.h"
 #include "../daemonize.h"
 #include "../reactor.h"
 #include "../timer.h"
+#include "../ipc.h"
 
 #include "tcp_passfd.h"
 #include "net_tcp_proc.h"
@@ -236,9 +238,8 @@ error:
  * if BLOCKING_USE_SELECT and HAVE_SELECT are defined it will internally
  * use select() instead of poll (bad if fd > FD_SET_SIZE, poll is preferred)
  */
-
-int tcp_connect_blocking(int fd, const struct sockaddr *servaddr,
-															socklen_t addrlen)
+int tcp_connect_blocking_timeout(int fd, const struct sockaddr *servaddr,
+											socklen_t addrlen, int timeout)
 {
 	int n;
 #if defined(HAVE_SELECT) && defined(BLOCKING_USE_SELECT)
@@ -258,7 +259,7 @@ int tcp_connect_blocking(int fd, const struct sockaddr *servaddr,
 	unsigned short port;
 
 	poll_err=0;
-	to = tcp_connect_timeout*1000;
+	to = timeout*1000;
 
 	if (gettimeofday(&(begin), NULL)) {
 		LM_ERR("Failed to get TCP connect start time\n");
@@ -333,12 +334,20 @@ again:
 error_timeout:
 	/* timeout */
 	LM_ERR("timeout %d ms elapsed from %d s\n", elapsed,
-		tcp_connect_timeout*1000);
+		timeout*1000);
 error:
 	return -1;
 end:
 	return 0;
 }
+
+int tcp_connect_blocking(int fd, const struct sockaddr *servaddr,
+															socklen_t addrlen)
+{
+	return tcp_connect_blocking_timeout(fd, servaddr, addrlen,
+			tcp_connect_timeout);
+}
+
 
 
 static int send2child(struct tcp_connection* tcpconn,int rw)
@@ -1200,9 +1209,9 @@ inline static int handle_tcp_worker(struct tcp_child* tcp_c, int fd_i)
 	if (bytes<(int)sizeof(response)){
 		if (bytes==0){
 			/* EOF -> bad, child has died */
-			LM_DBG("dead tcp worker %d (pid %d)"
-					" (shutting down?)\n", (int)(tcp_c-&tcp_children[0]),
-					tcp_c->pid );
+			if (get_osips_state()!=STATE_TERMINATING)
+				LM_CRIT("dead tcp worker %d (EOF received), pid %d\n",
+					(int)(tcp_c-&tcp_children[0]), tcp_c->pid );
 			/* don't listen on it any more */
 			reactor_del_reader( tcp_c->unix_sock, fd_i, 0/*flags*/);
 			/* eof. so no more io here, it's ok to return error */
@@ -1283,10 +1292,11 @@ inline static int handle_tcp_worker(struct tcp_child* tcp_c, int fd_i)
 		case CONN_EOF:
 			/* WARNING: this will auto-dec. refcnt! */
 			tcp_c->busy--;
-			/* main doesn't listen on it => we don't have to delete it
-			 if (tcpconn->s!=-1)
-				io_watch_del(&io_h, tcpconn->s, -1, IO_FD_CLOSING);
-			*/
+			if ((tcpconn->flags & F_CONN_REMOVED) != F_CONN_REMOVED &&
+				(tcpconn->s!=-1)){
+				reactor_del_all( tcpconn->s, -1, IO_FD_CLOSING);
+				tcpconn->flags|=F_CONN_REMOVED;
+			}
 			sh_log(tcpconn->hist, TCP_UNREF, "tcpworker destroy, (%d)", tcpconn->refcnt);
 			tcpconn_destroy(tcpconn); /* closes also the fd */
 			break;
@@ -1339,8 +1349,9 @@ inline static int handle_worker(struct process_table* p, int fd_i)
 		/* too few bytes read */
 		if (bytes==0){
 			/* EOF -> bad, child has died */
-			LM_DBG("dead child %d, pid %d"
-					" (shutting down?)\n", (int)(p-&pt[0]), p->pid);
+			if (get_osips_state()!=STATE_TERMINATING)
+				LM_CRIT("dead child %d (EOF received), pid %d\n",
+					(int)(p-&pt[0]), p->pid);
 			/* don't listen on it any more */
 			reactor_del_reader( p->unix_sock, fd_i, 0/*flags*/);
 			goto error; /* child dead => no further io events from it */
@@ -1464,8 +1475,9 @@ error:
  */
 inline static int handle_io(struct fd_map* fm, int idx,int event_type)
 {
-	int ret;
+	int ret = 0;
 
+	pt_become_active();
 	switch(fm->type){
 		case F_TCP_LISTENER:
 			ret = handle_new_connect((struct socket_info*)fm->data);
@@ -1480,6 +1492,9 @@ inline static int handle_io(struct fd_map* fm, int idx,int event_type)
 		case F_TCP_WORKER:
 			ret = handle_worker((struct process_table*)fm->data, idx);
 			break;
+		case F_IPC:
+			ipc_handle_job(fm->fd);
+			break;
 		case F_NONE:
 			LM_CRIT("empty fd map\n");
 			goto error;
@@ -1487,8 +1502,10 @@ inline static int handle_io(struct fd_map* fm, int idx,int event_type)
 			LM_CRIT("unknown fd type %d\n", fm->type);
 			goto error;
 	}
+	pt_become_idle();
 	return ret;
 error:
+	pt_become_idle();
 	return -1;
 }
 
@@ -1627,6 +1644,12 @@ static void tcp_main_server(void)
 		}
 	}
 
+	/* init: start watching for the IPC jobs */
+	if (reactor_add_reader(IPC_FD_READ_SELF, F_IPC, RCT_PRIO_ASYNC, NULL)<0){
+		LM_CRIT("failed to add IPC pipe to reactor\n");
+		goto error;
+	}
+
 	is_tcp_main = 1;
 
 	/* main loop (requires "handle_io()" implementation) */
@@ -1652,7 +1675,10 @@ int tcp_init(void)
 	/* first we do auto-detection to see if there are any TCP based
 	 * protocols loaded */
 	for ( i=PROTO_FIRST ; i<PROTO_LAST ; i++ )
-		if (is_tcp_based_proto(i)) {tcp_disabled=0;break;}
+		if (is_tcp_based_proto(i) && proto_has_listeners(i)) {
+			tcp_disabled=0;
+			break;
+		}
 
 	if (tcp_disabled)
 		return 0;
@@ -1713,12 +1739,6 @@ int tcp_init(void)
 			TCP_ALIAS_HASH_SIZE * sizeof(struct tcp_conn_alias*));
 		memset((void*)tcp_parts[i].tcpconn_id_hash, 0,
 			TCP_ID_HASH_SIZE * sizeof(struct tcp_connection*));
-	}
-
-	/* init the TCP reporting engine too */
-	if (init_tcp_reporting()!=0) {
-		LM_ERR("failed to init the reporting engine\n");
-		goto error;
 	}
 
 	return 0;
@@ -1805,7 +1825,6 @@ int tcp_start_processes(int *chd_rank, int *startup_done)
 	int reader_fd[2]; /* for comm. with the tcp children read  */
 	pid_t pid;
 	struct socket_info *si;
-	stat_var *load_p = NULL;
 
 	if (tcp_disabled)
 		return 0;
@@ -1818,11 +1837,6 @@ int tcp_start_processes(int *chd_rank, int *startup_done)
 		if ( is_tcp_based_proto(n) )
 			for(si=protos[n].listeners; si ; si=si->next,r++ );
 
-	if (register_tcp_load_stat( &load_p )!=0) {
-		LM_ERR("failed to init tcp load statistic\n");
-		goto error;
-	}
-
 	/* start the TCP workers & create the socket pairs */
 	for(r=0; r<tcp_children_no; r++){
 		/* create sock to communicate from TCP main to worker */
@@ -1832,7 +1846,7 @@ int tcp_start_processes(int *chd_rank, int *startup_done)
 		}
 
 		(*chd_rank)++;
-		pid=internal_fork("SIP receiver TCP");
+		pid=internal_fork("SIP receiver TCP", 0);
 		if (pid<0){
 			LM_ERR("fork failed\n");
 			goto error;
@@ -1847,7 +1861,6 @@ int tcp_start_processes(int *chd_rank, int *startup_done)
 			/* child */
 			set_proc_attrs("TCP receiver");
 			pt[process_no].idx=r;
-			pt[process_no].load = load_p;
 			if (tcp_worker_proc_reactor_init(reader_fd[1]) < 0 ||
 					init_child(*chd_rank) < 0) {
 				LM_ERR("init_children failed\n");
@@ -1896,7 +1909,7 @@ int tcp_start_listener(void)
 		return 0;
 
 	/* start the TCP manager process */
-	if ( (pid=internal_fork( "TCP main"))<0 ) {
+	if ( (pid=internal_fork( "TCP main", 0))<0 ) {
 		LM_CRIT("cannot fork tcp main process\n");
 		goto error;
 	}else if (pid==0){

@@ -3,7 +3,7 @@
 <chapter>
 	<title>&adminguide;</title>
 	
-	<section>
+	<section id="overview" xreflabel="Overview">
 	<title>Overview</title>
 	<para> This module introduces a new type of variable that provides both
 	serialization and de-serialization from JSON format.
@@ -29,7 +29,7 @@
 	
 	</section>
 
-	<section>
+	<section id="dependencies" xreflabel="Dependencies">
 	<title>Dependencies</title>
 	<section>
 		<title>&osips; Modules</title>
@@ -53,7 +53,7 @@
 		</section>
 	</section>
 	
-	<section>
+	<section id="exported_parameters" xreflabel="Exported Parameters">
 	<title>Exported Parameters</title>
 	
 		<para>
@@ -63,17 +63,16 @@
 	</section>
 
 
-	<section>
-	<title>Exported Variables</title>
+	<section id="exported_pseudo_variables" xreflabel="Exported Pseudo-Variables">
+	<title>Exported Pseudo-Variables</title>
 
-	<para>
-		This module exports the $json(id) variable.
-	</para>
-
-	<para>
-		The json variable provides methods to access fields
-		in json objects and indexes in json arrays.
-	</para>
+	<section id="pv_json" xreflabel="$json">
+		<title><varname>$json(id)</varname></title>
+		<para>
+			The <varname>json</varname> variable provides
+			methods to access fields in json objects and
+			indexes in json arrays.
+		</para>
 
 		<section>
 		<title>Variable lifetime </title>
@@ -85,7 +84,6 @@
 			transaction. If you want to use the on a per message
 			basis you should initialize them each time.
 		</para>
-
 
 
 		</section>
@@ -320,24 +318,38 @@ $json(array1[]) := "false";
 $json(array) := "[1,2,3]";
 $json(object) := "{}";
 $json(object/array) := $json(array) ;
-
 ...
 			</programlisting>
 			</example>
 
-
 			</section>
 
-
 		</section>
-
-
+	</section>
+	<section id="pv_json_pretty" xreflabel="$json_pretty">
+		<title><varname>$json_pretty(id)</varname></title>
+		<para>
+			The <varname>json_pretty</varname> variable has the
+			same purpose as the <varname>json</varname> variable,
+			but prints the JSON object in a pretty format, adding
+			spaces and tabs to make the output more readable.
+		</para>
+	</section>
+	<section id="pv_json_compact" xreflabel="$json_compact">
+		<title><varname>$json_compact(id)</varname></title>
+		<para>
+			The <varname>json_compact</varname> variable has the
+			same purpose as the <varname>json</varname> variable,
+			but prints the JSON object in a more compact form,
+			without formatting spaces.
+		</para>
+	</section>
 	</section>
 
-	<section>
+	<section id="exported_functions" xreflabel="exported_functions">
 	<title>Exported Functions</title>
 
-		<section>
+		<section id="func_json_link" xreflabel="json_link()">
 			<title>
 			<function moreinfo="none">
 				json_link("$json(dest_id)", "$json(source_id)")

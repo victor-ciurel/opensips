@@ -53,11 +53,13 @@ int bind_usrloc(usrloc_api_t* api)
 
 	api->register_udomain        = register_udomain;
 	api->get_next_udomain        = get_next_udomain;
+	api->next_contact_id         = next_contact_id;
 	api->get_all_ucontacts       = get_all_ucontacts;
 	api->get_domain_ucontacts    = get_domain_ucontacts;
 	api->insert_urecord          = insert_urecord;
 	api->delete_urecord          = delete_urecord;
 	api->get_urecord             = get_urecord;
+	api->get_global_urecord      = get_global_urecord;
 	api->lock_udomain            = lock_udomain;
 	api->unlock_udomain          = unlock_udomain;
 	api->lock_ulslot             = lock_ulslot;
@@ -65,14 +67,25 @@ int bind_usrloc(usrloc_api_t* api)
 	api->release_urecord         = release_urecord;
 	api->insert_ucontact         = insert_ucontact;
 	api->delete_ucontact         = delete_ucontact;
-	api->delete_ucontact_from_id = delete_ucontact_from_id;
+	api->delete_ucontact_from_coords = delete_ucontact_from_coords;
+	api->ucontact_coords_cmp     = ucontact_coords_cmp;
+	api->free_ucontact_coords    = free_ucontact_coords;
 	api->get_ucontact            = get_ucontact;
+	api->get_ucontact_from_id    = get_ucontact_from_id;
 	api->update_ucontact         = update_ucontact;
+
+	api->get_urecord_key         = get_urecord_key;
+	api->put_urecord_key         = put_urecord_key;
+	api->get_ucontact_key        = get_ucontact_key;
+	api->put_ucontact_key        = put_ucontact_key;
+
 	api->register_ulcb           = register_ulcb;
 
+	api->update_sipping_latency  = update_sipping_latency;
 	api->use_domain = use_domain;
-	api->db_mode    = db_mode;
+	api->cluster_mode    = cluster_mode;
 	api->nat_flag   = nat_bflag;
+	api->have_mem_storage = have_mem_storage;
 
 	return 0;
 }

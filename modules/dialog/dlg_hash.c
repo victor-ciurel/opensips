@@ -57,6 +57,7 @@
 #include "dlg_hash.h"
 #include "dlg_profile.h"
 #include "dlg_replication.h"
+#include "dlg_req_within.h"
 #include "../../evi/evi_params.h"
 #include "../../evi/evi_modules.h"
 
@@ -64,27 +65,26 @@
 #define MIN_LDG_LOCKS  2
 
 
-extern struct tm_binds d_tmb;
-
-
 struct dlg_table *d_table = NULL;
 int ctx_dlg_idx = 0;
 
-static inline void raise_state_changed_event(
-	unsigned int h_entry, unsigned int h_id,
-	unsigned int ostate, unsigned int nstate);
+static inline void raise_state_changed_event(struct dlg_cell *dlg,
+						unsigned int ostate, unsigned int nstate);
 static str ei_st_ch_name = str_init("E_DLG_STATE_CHANGED");
 static evi_params_p event_params;
 
 static str ei_h_entry = str_init("hash_entry");
 static str ei_h_id = str_init("hash_id");
+static str ei_c_id = str_init("callid");
+static str ei_from_tag = str_init("from_tag");
+static str ei_to_tag = str_init("to_tag");
 static str ei_old_state = str_init("old_state");
 static str ei_new_state = str_init("new_state");
 
 static event_id_t ei_st_ch_id = EVI_ERROR;
 
-static evi_param_p hentry_p, hid_p, ostate_p, nstate_p;
-
+static evi_param_p hentry_p, hid_p, cid_p, fromt_p, tot_p;
+static evi_param_p ostate_p, nstate_p;
 
 int dialog_cleanup( struct sip_msg *msg, void *param )
 {
@@ -181,8 +181,10 @@ static inline void free_dlg_dlg(struct dlg_cell *dlg)
 	if (dlg->cbs.first)
 		destroy_dlg_callbacks_list(dlg->cbs.first);
 
-	if (dlg->profile_links)
-		destroy_linkers(dlg->profile_links, 0);
+	if (dlg->profile_links) {
+		destroy_linkers_unsafe(dlg, 0);
+		remove_dlg_prof_table(dlg, 0);
+	}
 
 	if (dlg->legs) {
 		for( i=0 ; i<dlg->legs_no[DLG_LEGS_USED] ; i++) {
@@ -196,14 +198,14 @@ static inline void free_dlg_dlg(struct dlg_cell *dlg)
 				shm_free(dlg->legs[i].contact.s);
 			if (dlg->legs[i].route_set.s)
 				shm_free(dlg->legs[i].route_set.s);
-			if (dlg->legs[i].th_sent_contact.s)
-				shm_free(dlg->legs[i].th_sent_contact.s);
+			if (dlg->legs[i].adv_contact.s)
+				shm_free(dlg->legs[i].adv_contact.s);
 			if (dlg->legs[i].from_uri.s)
 				shm_free(dlg->legs[i].from_uri.s);
 			if (dlg->legs[i].to_uri.s)
 				shm_free(dlg->legs[i].to_uri.s);
-			if (dlg->legs[i].sdp.s)
-				shm_free(dlg->legs[i].sdp.s);
+			if (dlg->legs[i].adv_sdp.s)
+				shm_free(dlg->legs[i].adv_sdp.s);
 		}
 		shm_free(dlg->legs);
 	}
@@ -325,30 +327,50 @@ struct dlg_cell* build_new_dlg( str *callid, str *from_uri, str *to_uri,
 	return dlg;
 }
 
+int dlg_clone_callee_leg(struct dlg_cell *dlg, int cloned_leg_idx)
+{
+	struct dlg_leg *leg, *src_leg = &dlg->legs[cloned_leg_idx];
+
+	if (ensure_leg_array(dlg->legs_no[DLG_LEGS_USED] + 1, dlg) != 0)
+		return -1;
+	leg = &dlg->legs[dlg->legs_no[DLG_LEGS_USED]];
+
+	if (dlg_has_reinvite_pinging(dlg)) {
+		if (shm_str_dup(&leg->adv_sdp, &src_leg->adv_sdp) != 0) {
+			LM_ERR("oom sdp\n");
+			return -1;
+		}
+
+		if (shm_str_dup(&leg->adv_contact, &src_leg->adv_contact) != 0) {
+			LM_ERR("oom contact\n");
+			shm_free(leg->adv_sdp.s);
+			memset(&leg->adv_sdp, 0, sizeof leg->adv_sdp);
+			return -1;
+		}
+	}
+
+	return dlg->legs_no[DLG_LEGS_USED]++;
+}
 
 /* first time it will called for a CALLER leg - at that time there will
    be no leg allocated, so automatically CALLER gets the first position, while
    the CALLEE legs will follow into the array in the same order they came */
-int dlg_add_leg_info(struct dlg_cell *dlg, str* tag, str *rr,
+int dlg_update_leg_info(int leg_idx, struct dlg_cell *dlg, str* tag, str *rr,
 		str *contact,str *cseq, struct socket_info *sock,
 		str *mangled_from,str *mangled_to,str *sdp)
 {
-	struct dlg_leg* leg,*new_legs;
+	struct dlg_leg *leg;
 	rr_t *head = NULL, *rrp;
 
-	if ( (dlg->legs_no[DLG_LEGS_ALLOCED]-dlg->legs_no[DLG_LEGS_USED])==0) {
-		new_legs = (struct dlg_leg*)shm_realloc(dlg->legs,
-			(dlg->legs_no[DLG_LEGS_ALLOCED]+2)*sizeof(struct dlg_leg));
-		if (new_legs==NULL) {
-			LM_ERR("Failed to resize legs array\n");
-			return -1;
-		}
-		dlg->legs=new_legs;
-		dlg->legs_no[DLG_LEGS_ALLOCED] += 2;
-		memset( dlg->legs+dlg->legs_no[DLG_LEGS_ALLOCED]-2, 0,
-			2*sizeof(struct dlg_leg));
+	if (leg_idx >= MAX_BRANCHES) {
+		LM_WARN("invalid callee leg index (branch id part): %d\n", leg_idx);
+		return -1;
 	}
-	leg = &dlg->legs[ dlg->legs_no[DLG_LEGS_USED] ];
+
+	if (ensure_leg_array(leg_idx + 1, dlg) != 0)
+		return -1;
+
+	leg = &dlg->legs[leg_idx];
 
 	leg->tag.s = (char*)shm_malloc(tag->len);
 	if ( leg->tag.s==NULL) {
@@ -427,14 +449,14 @@ int dlg_add_leg_info(struct dlg_cell *dlg, str* tag, str *rr,
 	}
 
 	if (sdp && sdp->s && sdp->len) {
-		leg->sdp.s = shm_malloc(sdp->len);
-		if (!leg->sdp.s) {
+		leg->adv_sdp.s = shm_malloc(sdp->len);
+		if (!leg->adv_sdp.s) {
 			LM_ERR("no more shm\n");
 			goto error_all;
 		}
 
-		leg->sdp.len = sdp->len;
-		memcpy(leg->sdp.s,sdp->s,sdp->len);
+		leg->adv_sdp.len = sdp->len;
+		memcpy(leg->adv_sdp.s,sdp->s,sdp->len);
 	}
 
 	/* tag */
@@ -465,7 +487,8 @@ int dlg_add_leg_info(struct dlg_cell *dlg, str* tag, str *rr,
 	}
 
 	/* make leg visible for searchers */
-	dlg->legs_no[DLG_LEGS_USED]++;
+	if (leg_idx >= dlg->legs_no[DLG_LEGS_USED])
+		dlg->legs_no[DLG_LEGS_USED] = leg_idx + 1;
 
 	LM_DBG("set leg %d for %p: tag=<%.*s> rcseq=<%.*s>\n",
 		dlg->legs_no[DLG_LEGS_USED]-1, dlg,
@@ -850,6 +873,18 @@ int state_changed_event_init(void)
 	if (hid_p == NULL)
 		goto create_error;
 
+	cid_p = evi_param_create(event_params, &ei_c_id);
+	if (cid_p == NULL)
+		goto create_error;
+
+	fromt_p = evi_param_create(event_params, &ei_from_tag);
+	if (fromt_p == NULL)
+		goto create_error;
+
+	tot_p = evi_param_create(event_params, &ei_to_tag);
+	if (tot_p == NULL)
+		goto create_error;
+
 	ostate_p = evi_param_create(event_params, &ei_old_state);
 	if (ostate_p == NULL)
 		goto create_error;
@@ -876,14 +911,15 @@ void state_changed_event_destroy(void)
 /*
  * raise DLG_STATE_CHANGED event
  */
-static void raise_state_changed_event(unsigned int h_entry, unsigned int h_id,
+static void raise_state_changed_event(struct dlg_cell *dlg,
 									unsigned int ostate, unsigned int nstate)
 {
 	char b1[INT2STR_MAX_LEN], b2[INT2STR_MAX_LEN];
 	str s1, s2;
+	int callee_leg_idx;
 
-	s1.s = int2bstr( (unsigned long)h_entry, b1, &s1.len );
-	s2.s = int2bstr( (unsigned long)h_id, b2, &s2.len );
+	s1.s = int2bstr( (unsigned long)dlg->h_entry, b1, &s1.len);
+	s2.s = int2bstr( (unsigned long)dlg->h_id, b2, &s2.len);
 	if (s1.s==NULL || s2.s==NULL) {
 		LM_ERR("cannot convert hash params\n");
 		return;
@@ -892,9 +928,24 @@ static void raise_state_changed_event(unsigned int h_entry, unsigned int h_id,
 		LM_ERR("cannot set hash entry parameter\n");
 		return;
 	}
-
 	if (evi_param_set_str(hid_p, &s2) < 0) {
 		LM_ERR("cannot set hash id parameter\n");
+		return;
+	}
+
+	if (evi_param_set_str(cid_p, &dlg->callid) < 0) {
+		LM_ERR("cannot set callid parameter\n");
+		return;
+	}
+
+	if (evi_param_set_str(fromt_p, &dlg->legs[DLG_CALLER_LEG].tag) < 0) {
+		LM_ERR("cannot set from tag parameter\n");
+		return;
+	}
+
+	callee_leg_idx = callee_idx(dlg);
+	if (evi_param_set_str(tot_p, &dlg->legs[callee_leg_idx].tag) < 0) {
+		LM_ERR("cannot set from tag parameter\n");
 		return;
 	}
 
@@ -931,7 +982,7 @@ static inline void log_next_state_dlg(const int event,
 
 
 void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
-		int *new_state, int *unref, int last_dst_leg, char is_replicated)
+		int *new_state, int *unref, int last_dst_leg, char replicate_events)
 {
 	struct dlg_entry *d_entry;
 
@@ -1078,10 +1129,10 @@ void next_state_dlg(struct dlg_cell *dlg, int event, int dir, int *old_state,
 	dlg_unlock( d_table, d_entry);
 
 	if (*old_state != *new_state)
-		raise_state_changed_event(  dlg->h_entry, dlg->h_id,
-			(unsigned int)(*old_state), (unsigned int)(*new_state) );
+		raise_state_changed_event(dlg, (unsigned int)(*old_state),
+			(unsigned int)(*new_state));
 
-	 if ( !is_replicated && dialog_replicate_cluster &&
+	 if (dialog_repl_cluster && replicate_events &&
 	(*old_state==DLG_STATE_CONFIRMED_NA || *old_state==DLG_STATE_CONFIRMED) &&
 	*new_state==DLG_STATE_DELETED )
 		replicate_dialog_deleted(dlg);
@@ -1213,8 +1264,8 @@ static inline int internal_mi_print_dlg(struct mi_node *rpl,
 			goto error;
 
 		node1 = add_mi_node_child(node, MI_DUP_VALUE,"caller_sdp",10,
-				dlg->legs[DLG_CALLER_LEG].sdp.s,
-				dlg->legs[DLG_CALLER_LEG].sdp.len);
+				dlg->legs[DLG_CALLER_LEG].adv_sdp.s,
+				dlg->legs[DLG_CALLER_LEG].adv_sdp.len);
 		if(node1 == 0)
 			goto error;
 	}
@@ -1262,8 +1313,8 @@ static inline int internal_mi_print_dlg(struct mi_node *rpl,
 			goto error;
 		
 		node3 = add_mi_node_child(node2, MI_DUP_VALUE,"callee_sdp",10,
-				dlg->legs[i].sdp.s,
-				dlg->legs[i].sdp.len);
+				dlg->legs[i].adv_sdp.s,
+				dlg->legs[i].adv_sdp.len);
 		if(node3 == 0)
 			goto error;
 	}
@@ -1310,7 +1361,7 @@ static inline int internal_mi_print_dlg(struct mi_node *rpl,
 		}
 		/* print dlg profiles */
 		if (dlg->profile_links) {
-			node3 = add_mi_node_child(node1, MI_IS_ARRAY, "profiles", 8, 0, 0);
+			node3 = add_mi_node_child(node1, 0, "profiles", 8, 0, 0);
 			if(node3 == 0)
 				goto error;
 			for( dl=dlg->profile_links ; dl ; dl=dl->next) {
@@ -1545,4 +1596,109 @@ error:
 }
 
 
+struct mi_root * mi_push_dlg_var(struct mi_root *cmd_tree, void *param )
+{
+	struct mi_node* node;
+	unsigned int h_entry, h_id;
+	unsigned long long d_id;
+	str dlg_var_name,dlg_var_value,dialog_id;
+	char bkp, *end;
+	struct dlg_cell * dlg = NULL;
+	int shtag_state = 1;
 
+	if ( d_table == NULL)
+		goto not_found;	
+
+	node = cmd_tree->node.kids;
+	h_entry = h_id = 0;
+
+	/* min 3 params : dlg_var_name dlg_var_value dialog_id */
+	if (node==NULL || node->next == NULL || node->next->next == NULL)
+		goto bad_param; 
+
+	/* first param is the dialog var name */
+	if ( node->value.s==NULL || node->value.len==0 )
+		goto bad_param;
+	dlg_var_name = node->value;
+
+	/* second param is the dialog var value */
+	node = node->next;
+	if ( node->value.s==NULL || node->value.len==0 )
+		goto bad_param;
+	dlg_var_value = node->value;
+
+	/* third param is the dlg identifier */
+	
+	node = node->next;
+	while (node && node->value.s !=NULL && node->value.len!=0) {
+		dialog_id = node->value;
+
+		/* Get the dialog based of the dialog_id. This may be a
+		 * numerical DID or a string SIP Call-ID */
+
+		/* make value null terminated (in an ugly way) */
+		bkp = dialog_id.s[dialog_id.len];
+		dialog_id.s[dialog_id.len] = 0;
+
+		/* conver to long long */
+		d_id = strtoll( dialog_id.s, &end, 10);
+		dialog_id.s[dialog_id.len] = bkp;
+		if (end-dialog_id.s==dialog_id.len) {
+			/* the ID is numeric, so let's consider it DID */
+			h_entry = (unsigned int)(d_id>>(8*sizeof(int)));
+			h_id = (unsigned int)(d_id &
+				(((unsigned long long)1<<(8*sizeof(int)))-1) );
+			LM_DBG("ID: %llu (h_entry %u h_id %u)\n", d_id, h_entry, h_id);
+			dlg = lookup_dlg(h_entry, h_id);
+			if (dlg == NULL) {
+				LM_DBG("Faiure to match the ID as DLG_ID \n");
+				goto callid_lookup;
+			}
+		} else {
+callid_lookup:
+			/* the ID is not a number, so let's consider
+			 * the value a SIP call-id */
+			LM_DBG("Call-ID: <%.*s>\n", dialog_id.len, dialog_id.s);
+			dlg = get_dlg_by_callid( &dialog_id );
+		}
+
+		if (dlg == NULL) {
+			/* XXX - not_found or loop_end here ? */
+			goto loop_end;
+		}
+
+		if (dialog_repl_cluster) {
+			shtag_state = get_shtag_state(dlg);
+			if (shtag_state < 0) {
+				unref_dlg(dlg, 1);
+				goto dlg_error;
+			} else if (shtag_state == 0) {
+				/* editing dlg vars on backup servers - no no */
+				unref_dlg(dlg, 1);
+				return init_mi_tree(403, MI_DIALOG_BACKUP_ERR,
+				MI_DIALOG_BACKUP_ERR_LEN);
+			}
+		}
+
+		if (store_dlg_value( dlg, &dlg_var_name, &dlg_var_value)!=0) {
+			LM_ERR("failed to store dialog values <%.*s>:<%.*s>\n",
+			dlg_var_name.len,dlg_var_name.s,
+			dlg_var_value.len,dlg_var_value.s);
+
+			unref_dlg(dlg, 1);
+			goto dlg_error;
+		}
+			
+		unref_dlg(dlg, 1);
+loop_end:
+		node = node->next;
+	}
+	return init_mi_tree(200, MI_OK_S, MI_OK_LEN);
+
+not_found:
+	return init_mi_tree(404, MI_DIALOG_NOT_FOUND, MI_DIALOG_NOT_FOUND_LEN);
+bad_param:
+	return init_mi_tree( 400, MI_BAD_PARM_S, MI_BAD_PARM_LEN);
+dlg_error:
+	return init_mi_tree(403, MI_DLG_OPERATION_ERR, MI_DLG_OPERATION_ERR_LEN);
+}

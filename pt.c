@@ -33,6 +33,7 @@
 #include "dprint.h"
 #include "pt.h"
 #include "bin_interface.h"
+#include "ipc.h"
 
 
 /* array with children pids, 0= main proc,
@@ -80,10 +81,57 @@ int init_multi_proc_support(void)
 		pt[i].ipc_pipe[0] = pt[i].ipc_pipe[1] = -1;
 	}
 
+
 	/* set the pid for the starter process */
 	set_proc_attrs("starter");
 
 	counted_processes = proc_no;
+
+	/* create the IPC pipes */
+	if (create_ipc_pipes( proc_no )<0) {
+		LM_ERR("failed to create IPC pipes, aborting\n");
+		return -1;
+	}
+
+	/* register the stats for the global load */
+	if ( register_stat2( "load", "load", (stat_var**)pt_get_rt_load,
+	STAT_IS_FUNC, NULL, 0) != 0) {
+		LM_ERR("failed to add RT global load stat\n");
+		return -1;
+	}
+
+	if ( register_stat2( "load", "load1m", (stat_var**)pt_get_1m_load,
+	STAT_IS_FUNC, NULL, 0) != 0) {
+		LM_ERR("failed to add RT global load stat\n");
+		return -1;
+	}
+
+	if ( register_stat2( "load", "load10m", (stat_var**)pt_get_10m_load,
+	STAT_IS_FUNC, NULL, 0) != 0) {
+		LM_ERR("failed to add RT global load stat\n");
+		return -1;
+	}
+
+	/* register the stats for the extended global load */
+	if ( register_stat2( "load", "load-all", (stat_var**)pt_get_rt_loadall,
+	STAT_IS_FUNC, NULL, 0) != 0) {
+		LM_ERR("failed to add RT global load stat\n");
+		return -1;
+	}
+
+	if ( register_stat2( "load", "load1m-all", (stat_var**)pt_get_1m_loadall,
+	STAT_IS_FUNC, NULL, 0) != 0) {
+		LM_ERR("failed to add RT global load stat\n");
+		return -1;
+	}
+
+	if ( register_stat2( "load", "load10m-all", (stat_var**)pt_get_10m_loadall,
+	STAT_IS_FUNC, NULL, 0) != 0) {
+		LM_ERR("failed to add RT global load stat\n");
+		return -1;
+	}
+
+
 
 	return 0;
 }
@@ -103,10 +151,20 @@ void set_proc_attrs( char *fmt, ...)
 }
 
 
+static int register_process_stats(int process_no)
+{
+	if (register_process_load_stats(process_no) != 0) {
+		LM_ERR("failed to create load stats\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 
 /* This function is to be called only by the main process!
  * */
-pid_t internal_fork(char *proc_desc)
+pid_t internal_fork(char *proc_desc, unsigned int flags)
 {
 	#define CHILD_COUNTER_STOP  656565656
 	static int process_counter = 1;
@@ -129,10 +187,19 @@ pid_t internal_fork(char *proc_desc)
 		return -1;
 	}
 
-	/* create the IPC pipe */
-	if (pipe(pt[process_counter].ipc_pipe)<0) {
-		LM_ERR("failed to create IPC pipe for process %d, err %d/%s\n",
-			process_counter, errno, strerror(errno));
+	/* check the IPC pipe */
+	if ( (flags & OSS_FORK_NO_IPC) ) {
+		/* close the listening end */
+		close(pt[process_counter].ipc_pipe[0]);
+		/* advertise no IPC to the rest of the procs */
+		pt[process_counter].ipc_pipe[0] = -1;
+		pt[process_counter].ipc_pipe[1] = -1;
+		/* NOTE: the IPC fds will remain open in the other processes,
+		 * but they will not be known */
+	}
+
+	if (register_process_stats(process_counter)<0) {
+		LM_ERR("failed to create stats for future proc %d\n", process_no);
 		return -1;
 	}
 
@@ -150,6 +217,7 @@ pid_t internal_fork(char *proc_desc)
 		/* set uid and pid */
 		process_no = process_counter;
 		pt[process_no].pid = getpid();
+		pt[process_no].flags = flags;
 		process_counter = CHILD_COUNTER_STOP;
 		/* each children need a unique seed */
 		seed_child(seed);
@@ -208,13 +276,3 @@ int count_init_children(int flags)
 	return ret;
 }
 
-int id_of_pid(pid_t pid)
-{
-	int i;
-
-	for (i = 0; i < counted_processes; i++)
-		if (pt[i].pid == pid)
-			return i;
-
-	return -1;
-}

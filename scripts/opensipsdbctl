@@ -10,7 +10,7 @@ PATH=$PATH:/usr/local/sbin/
 
 # for testing only, please don't enable this in production environments
 # as this introduce security risks
-TEST="false"
+TEST=${TEST:-"false"}
 
 ### include resource files, if any
 if [ -n "$osipsctlrc" -a -f "$osipsctlrc" ]; then
@@ -130,7 +130,7 @@ case $DBENGINE in
 			USED_DBENGINE="sqlite"
 			DBNAME=$DB_PATH
 		else
-			merr "could not load the script in $MYLIBDIR/opensipsdbctl.db_berkeley for database engine $DBENGINE"
+			merr "could not load the script in $MYLIBDIR/opensipsdbctl.sqlite for database engine $DBENGINE"
 		fi
 		;;
 
@@ -178,7 +178,7 @@ opensips_restore() #pars: <database name> <filename>
 		oracle_restore $1 $2
 	elif [ "$USED_DBENGINE" = "sqlite" ]; then
 		if [ -f $1 ] ; then
-			get_answer ask "Sqlite database exists? Remove current db (y/n): "
+			get_answer ask "Sqlite database exists? Remove current db (y/N): " "n"
 			if [ "$ANSWER" = "y" ]; then
 				rm $1
 			else
@@ -201,7 +201,7 @@ opensips_restore() #pars: <database name> <filename>
 opensips_pframework_create() #pars: none
 {
 	if [ -e $DEFAULT_CFG_DIR/pi_framework_sample ] ; then
-		get_answer ask "Sample already exists. Overwrite? (y/n): "
+		get_answer ask "Sample already exists. Overwrite? (y/N): " "n"
 		if [ "$ANSWER" != "y" ]; then
 			exit 1
 		fi
@@ -220,12 +220,12 @@ opensips_pframework_create() #pars: none
 	fi
 
 
-	get_answer $INSTALL_EXTRA_TABLES "Add provisionning framework for extra tables? (y/n): "
+	get_answer $INSTALL_EXTRA_TABLES "Add provisioning framework for extra tables? (Y/n): " "y"
 	if [ "$ANSWER" = "y" ]; then
 		PI_MODULES="$PI_MODULES $EXTRA_MODULES"
 	fi
 
-	get_answer $INSTALL_PRESENCE_TABLES "Add provisionning framework for presence tables? (y/n): "
+	get_answer $INSTALL_PRESENCE_TABLES "Add provisioning framework for presence tables? (Y/n): " "y"
 	if [ "$ANSWER" = "y" ]; then
 		PI_PRESENCE_MODULES="TRUE"
 	fi
@@ -306,12 +306,12 @@ case $1 in
 			exit 1
 		fi
 
-		minfo	"MySQL DB migration tool for OpenSIPS 2.3.x databases\n\
+		minfo	"MySQL DB migration tool for OpenSIPS 2.3 databases\n\
 ----------------------------------------------------------------------"
 		mwarn "\
-We recommend using this tool ONLY in order to upgrade an existing\n\
-OpenSIPS 2.3.x MySQL database to 2.4 schema. Behaviour when automatically\n\
-migrating earlier DB versions (1.8 .. 2.2) to 2.4 is undefined"
+We recommend using this tool in order to specifically duplicate an\n\
+existing OpenSIPS 2.3 MySQL database into its 2.4 schema equivalent.\n\
+Behaviour when migrating earlier DB schemas (1.8 .. 2.2) to 2.4 is undefined."
 		read -p"Do you wish to continue? (y/N) " ANS
 
 		[ "$ANS" != "y" -a "$ANS" != "Y" ] && exit 1
@@ -343,7 +343,7 @@ migrating earlier DB versions (1.8 .. 2.2) to 2.4 is undefined"
 		# sqlite has backup function which creats a copy of the db
 		if [ "$USED_DBENGINE" = "sqlite" ] ; then
 			if [ -f $2 ] ; then
-				get_answer ask "File $2 exists? Remove file and install new db instead? (y/n): "
+				get_answer ask "File $2 exists? Remove file and install new DB instead? (y/N): " "n"
 				if [ "$ANSWER" = "y" ]; then
 					rm $2
 				else

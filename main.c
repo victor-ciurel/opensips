@@ -108,6 +108,7 @@
 #include "mem/shm_mem.h"
 #include "sr_module.h"
 #include "timer.h"
+#include "ipc.h"
 #include "parser/msg_parser.h"
 #include "ip_addr.h"
 #include "resolve.h"
@@ -120,6 +121,7 @@
 #include "dset.h"
 #include "blacklists.h"
 #include "xlog.h"
+#include "ipc.h"
 
 #include "pt.h"
 #include "ut.h"
@@ -135,6 +137,18 @@
 #include "mi/mi_core.h"
 #include "db/db_insertq.h"
 #include "net/trans.h"
+
+#include "test/unit_tests.h"
+
+/*
+ * when enabled ("-T" cmdline param), OpenSIPS startup will unfold as follows:
+ *   - enable debug mode
+ *   - fork workers normally
+ *   - run all currently enabled unit tests
+ *   - print the unit test summary
+ *   - exit with 0 on success, non-zero otherwise
+ */
+int testing_framework;
 
 static char* version=OPENSIPS_FULL_VERSION;
 static char* flags=OPENSIPS_COMPILE_FLAGS;
@@ -350,69 +364,134 @@ void cleanup(int show_status)
 
 
 /**
- * Tries to send a signal to all our processes
- * If daemonized  is ok to send the signal to all the process group,
- * however if not daemonized we might end up sending the signal also
- * to the shell which launched us => most signals will kill it if
- * it's not in interactive mode and we don't want this. The non-daemonized
- * case can occur when an error is encountered before daemonize is called
- * (e.g. when parsing the config file) or when opensips is started in
- * "don't-fork" mode.
+ * Send a signal to all child processes
  * \param signum signal for killing the children
  */
 static void kill_all_children(int signum)
 {
 	int r;
-	if (own_pgid) {
-		/* check that all processes initialized properly */
-		for (r=1; r<counted_processes; r++) {
-			while (pt[r].pid==0){
-				usleep(1000);
-			}
-		}
-		kill(0, signum);
-	} else if (pt)
-		for (r=1; r<counted_processes; r++) {
-			if (pt[r].pid==-1) continue;
-			/* as the PIDs are filled in by child processes, a 0 PID means
-			 * an un-initalized procees; killing an uninitialized proc is
-			 * very dangerous, so better wait for it to finish its init
-			 * sequance by checking when the pid is populated */
-			while (pt[r].pid==0) usleep(1000);
-			kill(pt[r].pid, signum);
-		}
-}
 
+	if (!pt)
+		return;
 
+	for (r = 1; r < counted_processes; r++) {
+		if (pt[r].pid == -1 || (pt[r].flags & OSS_TAKING_A_DUMP))
+			continue;
 
-/**
- * Timeout handler during wait for children exit.
- * If this handler is called, a critical timeout has occurred while
- * waiting for the children to finish => we should kill everything and exit
- * \param signo signal for killing the children
- */
-static void sig_alarm_kill(int signo)
-{
-	kill_all_children(SIGKILL); /* this will kill the whole group
-								  including "this" process;
-								  for debugging replace with SIGABRT
-								  (but warning: it might generate lots
-								   of cores) */
+		/* as the PIDs are filled in by child processes, a 0 PID means
+		 * an un-initalized procees; killing an uninitialized proc is
+		 * very dangerous, so better wait for it to finish its init
+		 * sequence by blocking until the pid is populated */
+		while (pt[r].pid == 0)
+			usleep(1000);
+
+		kill(pt[r].pid, signum);
+	}
 }
 
 
 /**
- * Timeout handler during wait for children exit.
- * like sig_alarm_kill, but the timeout has occurred when cleaning up,
- * try to leave a core for future diagnostics
- * \param signo signal for killing the children
- * \see sig_alarm_kill
+ * SIGALRM "timeout" handler during the attendant's final cleanup,
+ * try to leave a core for future diagnostics.
  */
 static void sig_alarm_abort(int signo)
 {
 	/* LOG is not signal safe, but who cares, we are abort-ing anyway :-) */
-	LM_CRIT("BUG - shutdown timeout triggered, dying...");
+	LM_CRIT("BUG - shutdown timeout triggered, dying...\n");
 	abort();
+}
+
+
+/* RPC function send by main process to all worker processes supporting
+ * IPC in order to force a gracefull termination
+ */
+static void rpc_process_terminate(int sender_id, void *code)
+{
+	#ifdef PKG_MALLOC
+	LM_GEN1(memdump, "Memory status (pkg):\n");
+	pkg_status();
+	#endif
+
+	/* simply terminate the process */
+	LM_DBG("Process %d exiting with code %d...\n",
+		process_no, (int)(long)code);
+
+	exit( (int)(long)code );
+}
+
+
+/* Implements full shutdown sequence (terminate processes and cleanup)
+ * To be called ONLY from MAIN process, not from workers !!!
+ */
+static void shutdown_opensips( int status )
+{
+	pid_t  proc;
+	int i, n, p;
+	int chld_status;
+
+	set_osips_state( STATE_TERMINATING );
+
+	/* terminate all processes */
+
+	/* first we try to terminate the processes via the IPC channel */
+	for( i=1,n=0 ; i<counted_processes; i++) {
+		/* Depending on the processes status, its PID may be:
+		 *   -1 - process not forked yet
+		 *    0 - process forked but not fully configured by core
+		 *   >0 - process fully running
+		 */
+		if (pt[i].pid!=-1) {
+			/* use IPC (if avaiable) for a graceful termination */
+			if ( IPC_FD_WRITE(i)>0 ) {
+				LM_DBG("Asking process %d [%s] to terminate\n", i, pt[i].desc);
+				if (ipc_send_rpc( i, rpc_process_terminate, (void*)0)<0) {
+					LM_ERR("failed to trigger RPC termination for "
+						"process %d\n", i );
+				}
+			} else {
+				while (pt[i].pid==0) usleep(1000);
+				kill(pt[i].pid, SIGTERM);
+			}
+			n++;
+		}
+	}
+
+	/* now wait for the processes to finish */
+	i = GRACEFUL_SHUTDOWN_TIMEOUT * 100;
+	while( i && n ) {
+		proc = waitpid( -1, &chld_status, WNOHANG);
+		if (proc<=0) {
+			/* no process exited so far, do a small sleep before retry */
+			usleep(10000);
+			i--;
+		} else {
+			if ( (p=get_process_ID_by_PID(proc)) == -1 ) {
+				LM_DBG("unknown child process %d ended. Ignoring\n",proc);
+			} else {
+				LM_INFO("process %d(%d) [%s] terminated, "
+					"still waiting for %d more\n", p, proc, pt[p].desc, n-1);
+				/* mark the child process as terminated / not running */
+				pt[p].pid = -1;
+				status |= chld_status;
+				n--;
+			}
+		}
+	}
+
+	if (i==0 && n!=0) {
+		LM_DBG("force termination for all processes\n");
+		kill_all_children(SIGKILL);
+	}
+
+	/* Only one process is running now. Clean up and return overall status */
+	signal(SIGALRM, sig_alarm_abort);
+	alarm(SHUTDOWN_TIMEOUT - i / 100);
+	cleanup(1);
+	alarm(0);
+	signal(SIGALRM, SIG_IGN);
+
+	dprint("Thank you for running " NAME "\n");
+	exit( status );
 }
 
 
@@ -425,7 +504,6 @@ void handle_sigs(void)
 	int    chld_status,overall_status=0;
 	int    i;
 	int    do_exit;
-	const unsigned int shutdown_time = 60; /* one minute close timeout */
 
 	switch(sig_flag){
 		case 0: break; /* do nothing*/
@@ -433,63 +511,34 @@ void handle_sigs(void)
 				/* SIGPIPE might be rarely received on use of
 				   exec module; simply ignore it
 				 */
-				LM_WARN("SIGPIPE received and ignored\n");
+		case SIGUSR1:
+		case SIGUSR2:
+		case SIGHUP:
+				/* ignoring it*/
 				break;
 		case SIGINT:
 		case SIGTERM:
 			/* we end the program in all these cases */
 			if (sig_flag==SIGINT)
-				LM_DBG("INT received, program terminates\n");
+				LM_DBG("SIGINT received, program terminates\n");
 			else
 				LM_DBG("SIGTERM received, program terminates\n");
 
-			/* first of all, kill the children also */
-			kill_all_children(SIGTERM);
-			if (signal(SIGALRM, sig_alarm_kill) == SIG_ERR ) {
-				LM_ERR("could not install SIGALARM handler\n");
-				/* continue, the process will die anyway if no
-				 * alarm is installed which is exactly what we want */
-			}
-			alarm(shutdown_time);
-			while(wait(0) > 0); /* Wait for all the children to terminate */
-			signal(SIGALRM, sig_alarm_abort);
-
-			cleanup(1); /* cleanup & show status*/
-			alarm(0);
-			signal(SIGALRM, SIG_IGN);
-			dprint("Thank you for flying " NAME "\n");
-			exit(0);
-			break;
-
-		case SIGUSR1:
-#ifdef PKG_MALLOC
-			LM_GEN1(memdump, "Memory status (pkg):\n");
-			pkg_status();
-#endif
-			LM_GEN1(memdump, "Memory status (shm):\n");
-			shm_status();
-			break;
-
-		case SIGUSR2:
-#ifdef PKG_MALLOC
-			set_pkg_stats( get_pkg_status_holder(process_no) );
-#endif
+			shutdown_opensips( 0/*status*/ );
 			break;
 
 		case SIGCHLD:
 			do_exit = 0;
 			while ((chld=waitpid( -1, &chld_status, WNOHANG ))>0) {
 				/* is it a process we know about? */
-				for( i=0 ; i<counted_processes ; i++ )
-					if (pt[i].pid==chld) break;
-				if (i==counted_processes) {
+				if ( (i=get_process_ID_by_PID( chld )) == -1 ) {
 					LM_DBG("unknown child process %d ended. Ignoring\n",chld);
 					continue;
 				}
 				do_exit = 1;
 				/* process the signal */
 				overall_status |= chld_status;
-				LM_DBG("status = %d\n",overall_status);
+				LM_DBG("OpenSIPS exit status = %d\n",overall_status);
 
 				if (WIFEXITED(chld_status))
 					LM_INFO("child process %d exited normally,"
@@ -506,37 +555,43 @@ void handle_sigs(void)
 					LM_INFO("child process %d stopped by a"
 								" signal %d\n", chld,
 								 WSTOPSIG(chld_status));
+
+				/* mark the child process as terminated / not running */
+				pt[i].pid = -1;
 			}
 			if (!do_exit)
 				break;
 			LM_INFO("terminating due to SIGCHLD\n");
 			/* exit */
-			kill_all_children(SIGTERM);
-			if (signal(SIGALRM, sig_alarm_kill) == SIG_ERR ) {
-				LM_ERR("could not install SIGALARM handler\n");
-				/* continue, the process will die anyway if no
-				 * alarm is installed which is exactly what we want */
-			}
-			alarm(shutdown_time);
-			while(wait(0) > 0); /* wait for all the children to terminate*/
-			signal(SIGALRM, sig_alarm_abort);
-			cleanup(1); /* cleanup & show status*/
-			alarm(0);
-			signal(SIGALRM, SIG_IGN);
-			LM_DBG("terminating due to SIGCHLD\n");
-			exit(overall_status ? -1 : 0);
+			shutdown_opensips( overall_status );
 			break;
 
-		case SIGHUP: /* ignoring it*/
-			LM_DBG("SIGHUP received, ignoring it\n");
-			break;
 		default:
 			LM_CRIT("unhandled signal %d\n", sig_flag);
 	}
 	sig_flag=0;
 }
 
+/* the initial SIGSEGV handler, provided by the OS */
+static struct sigaction sa_sys_segv;
+static char sa_sys_is_valid;
 
+static inline int restore_segv_handler(void)
+{
+	LM_DBG("restoring SIGSEGV handler...\n");
+
+	if (!sa_sys_is_valid)
+		return 1;
+
+	if (sigaction(SIGSEGV, &sa_sys_segv, NULL) < 0) {
+		LM_ERR("failed to restore system SIGSEGV handler\n");
+		return -1;
+	}
+
+	LM_DBG("successfully restored system SIGSEGV handler\n");
+
+	return 0;
+}
 
 /**
  * Exit regulary on a specific signal.
@@ -558,10 +613,17 @@ static void sig_usr(int signo)
 		/* process the important signals */
 		switch(signo){
 			case SIGPIPE:
-					LM_INFO("signal %d received\n", signo);
-				break;
 			case SIGINT:
+			case SIGUSR1:
+			case SIGUSR2:
+			case SIGHUP:
+					/* ignored*/
+					break;
 			case SIGTERM:
+					/* ignore any SIGTERM if not in shutdown sequance (this 
+					 * is marked by the attendent process) */
+					if (get_osips_state()!=STATE_TERMINATING)
+						return;
 					/* if some shutdown already in progress, ignore this one */
 					if (sig_flag==0) sig_flag=signo;
 					else return;
@@ -574,25 +636,16 @@ static void sig_usr(int signo)
 					#endif
 					exit(0);
 					break;
-			case SIGUSR1:
-					/* statistics -> show only pkg mem */
-					#ifdef PKG_MALLOC
-					LM_GEN1(memdump, "Memory status (pkg):\n");
-					pkg_status();
-					#endif
-					break;
-			case SIGUSR2:
-					#ifdef PKG_MALLOC
-					set_pkg_stats( get_pkg_status_holder(process_no) );
-					#endif
-					break;
-			case SIGHUP:
-					/* ignored*/
-					break;
 			case SIGCHLD:
 					pid = waitpid(-1, &status, WNOHANG);
 					LM_DBG("SIGCHLD received from %ld (status=%d), ignoring\n",
 						(long)pid,status);
+					break;
+			case SIGSEGV:
+					/* looks like we ate some spicy SIP */
+					pt[process_no].flags |= OSS_TAKING_A_DUMP;
+					if (restore_segv_handler() != 0)
+						exit(-1);
 		}
 	}
 }
@@ -605,7 +658,20 @@ static void sig_usr(int signo)
  */
 int install_sigs(void)
 {
-	/* added by jku: add exit handler */
+	struct sigaction act;
+
+	memset(&act, 0, sizeof act);
+
+	act.sa_handler = sig_usr;
+	if (sigaction(SIGSEGV, &act, &sa_sys_segv) < 0) {
+		LM_INFO("failed to install custom SIGSEGV handler -- corefiles must "
+		        "now be written within %d sec to avoid truncation!\n",
+		        GRACEFUL_SHUTDOWN_TIMEOUT);
+	} else {
+		LM_DBG("override SIGSEGV handler: success\n");
+		sa_sys_is_valid = 1;
+	}
+
 	if (signal(SIGINT, sig_usr) == SIG_ERR ) {
 		LM_ERR("no SIGINT signal handler can be installed\n");
 		goto error;
@@ -707,9 +773,22 @@ static int main_loop(void)
 		shm_free(startup_done);
 	}
 
+	set_osips_state( STATE_RUNNING );
+
 	/* main process left */
 	is_main=1;
 	set_proc_attrs("attendant");
+	pt[process_no].flags = OSS_FORK_NO_IPC|OSS_FORK_NO_LOAD;
+
+	if (testing_framework) {
+		if (init_child(1) < 0) {
+			LM_ERR("error in init_child for PROC_MAIN\n");
+			report_failure_status();
+			goto error;
+		}
+
+		return run_unit_tests();
+	}
 
 	if (init_child(PROC_MAIN) < 0) {
 		LM_ERR("error in init_child for PROC_MAIN\n");
@@ -718,6 +797,10 @@ static int main_loop(void)
 	}
 
 	report_conditional_status( (!no_daemon_mode), 0);
+
+	/* no need to intercept SIGSEGV in attendant */
+	if (restore_segv_handler() < 0)
+		goto error;
 
 	for(;;){
 			handle_sigs();
@@ -747,7 +830,7 @@ int main(int argc, char** argv)
 {
 	/* configure by default logging to syslog */
 	int cfg_log_stderr = 1;
-	FILE* cfg_stream;
+	FILE* cfg_stream = NULL;
 	int c,r;
 	char *tmp;
 	int tmp_len;
@@ -765,7 +848,12 @@ int main(int argc, char** argv)
 
 	/* process pkg mem size from command line */
 	opterr=0;
-	options="f:cCm:M:b:l:n:N:rRvdDFETSVhw:t:u:g:P:G:W:o:";
+
+	options="f:cCm:M:b:l:n:N:rRvdDFEVhw:t:u:g:P:G:W:o:"
+#ifdef UNIT_TESTS
+	"T"
+#endif
+	;
 
 	while((c=getopt(argc,argv,options))!=-1){
 		switch(c){
@@ -934,6 +1022,12 @@ int main(int argc, char** argv)
 					if (add_arg_var(optarg) < 0)
 						LM_ERR("cannot add option %s\n", optarg);
 					break;
+#ifdef UNIT_TESTS
+			case 'T':
+					LM_INFO("running in testing framework mode!\n");
+					testing_framework = 1;
+					break;
+#endif
 			case '?':
 					if (isprint(optopt))
 						LM_ERR("Unknown option `-%c`.\n", optopt);
@@ -950,18 +1044,20 @@ int main(int argc, char** argv)
 
 	log_stderr = cfg_log_stderr;
 
-	/* fill missing arguments with the default values*/
-	if (cfg_file==0) cfg_file=CFG_FILE;
+	if (!testing_framework) {
+		/* fill missing arguments with the default values*/
+		if (cfg_file==0) cfg_file=CFG_FILE;
 
-	if (strlen(cfg_file) == 1 && cfg_file[0] == '-') {
-		cfg_stream = stdin;
-	} else {
-		/* load config file or die */
-		cfg_stream=fopen (cfg_file, "r");
-		if (cfg_stream==0){
-			LM_ERR("loading config file(%s): %s\n", cfg_file,
-					strerror(errno));
-			goto error00;
+		if (strlen(cfg_file) == 1 && cfg_file[0] == '-') {
+			cfg_stream = stdin;
+		} else {
+			/* load config file or die */
+			cfg_stream=fopen (cfg_file, "r");
+			if (cfg_stream==0){
+				LM_ERR("loading config file(%s): %s\n", cfg_file,
+						strerror(errno));
+				goto error00;
+			}
 		}
 	}
 
@@ -1012,17 +1108,21 @@ try_again:
 	if (init_shm_mallocs()==-1)
 		goto error;
 
+	set_osips_state( STATE_STARTING );
+
 	if (init_stats_collector() < 0) {
 		LM_ERR("failed to initialize statistics\n");
 		goto error;
 	}
 
-	/* parse the config file, prior to this only default values
-	   e.g. for debugging settings will be used */
-	yyin=cfg_stream;
-	if ((yyparse()!=0)||(cfg_errors)){
-		LM_ERR("bad config file (%d errors)\n", cfg_errors);
-		goto error00;
+	if (!testing_framework) {
+		/* parse the config file, prior to this only default values
+		   e.g. for debugging settings will be used */
+		yyin=cfg_stream;
+		if ((yyparse()!=0)||(cfg_errors)){
+			LM_ERR("bad config file (%d errors)\n", cfg_errors);
+			goto error00;
+		}
 	}
 
 	/* shm statistics, module stat groups, memory warming */
@@ -1054,7 +1154,7 @@ try_again:
 	if (protos_no < 0) {
 		LM_ERR("cannot load transport protocols\n");
 		goto error;
-	} else if (protos_no == 0) {
+	} else if (protos_no == 0 && !testing_framework) {
 		LM_ERR("no transport protocol loaded\n");
 		goto error;
 	} else
@@ -1098,8 +1198,10 @@ try_again:
 		goto error;
 	}
 
-	if (debug_mode) {
+	if (testing_framework)
+		debug_mode = 1;
 
+	if (debug_mode) {
 		LM_NOTICE("DEBUG MODE activated\n");
 		if (no_daemon_mode==0) {
 			LM_NOTICE("disabling daemon mode (found enabled)\n");
@@ -1134,11 +1236,9 @@ try_again:
 		}
 
 	} else { /* debug_mode */
-
 		/* init_daemon */
 		if ( daemonize((log_name==0)?argv[0]:log_name, &own_pgid) <0 )
 			goto error;
-
 	}
 
 	/* install signal handlers */
@@ -1173,6 +1273,12 @@ try_again:
 	/* init timer */
 	if (init_timer()<0){
 		LM_CRIT("could not initialize timer, exiting...\n");
+		goto error;
+	}
+
+	/* init IPC */
+	if (init_ipc()<0){
+		LM_CRIT("could not initialize IPC support, exiting...\n");
 		goto error;
 	}
 

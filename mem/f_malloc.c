@@ -142,14 +142,23 @@ inline static unsigned long big_hash_idx(unsigned long s)
 #endif
 
 #ifdef SHM_EXTRA_STATS
+#include "module_info.h"
 void set_stat_index (void *ptr, unsigned long idx) {
 	struct fm_frag *f;
+
+	if (!ptr)
+		return;
+
 	f = (struct fm_frag *)((char*)ptr - sizeof(struct fm_frag));
 	f->statistic_index = idx;
 }
 
 unsigned long get_stat_index(void *ptr) {
 	struct fm_frag *f;
+
+	if (!ptr)
+		return GROUP_IDX_INVALID;
+
 	f = (struct fm_frag *)((char*)ptr - sizeof(struct fm_frag));
 	return f->statistic_index;
 }
@@ -381,7 +390,8 @@ void* fm_malloc(struct fm_block* qm, unsigned long size)
 	{
 		n = FRAG_NEXT(frag);
 
-		if ( ((char*)n < (char*)qm->last_frag) &&  n->prev && frag->prev )
+		if (((char*)n < (char*)qm->last_frag) &&
+		    frag_is_free(n) && frag_is_free(frag))
 		{
 			/* detach frag*/
 			fm_remove_free(qm, frag);
@@ -408,7 +418,7 @@ void* fm_malloc(struct fm_block* qm, unsigned long size)
 				n = FRAG_NEXT(frag);
 			}
 			while
-			( ((char*)n < (char*)qm->last_frag) &&  n->prev);
+			( ((char*)n < (char*)qm->last_frag) && frag_is_free(n));
 
 			fm_insert_free(qm,frag);
 
@@ -484,6 +494,20 @@ void fm_free(struct fm_block* qm, void* p)
 	}
 	f=(struct fm_frag*) ((char*)p-sizeof(struct fm_frag));
 
+#ifndef F_MALLOC_OPTIMIZATIONS
+	if (frag_is_free(f)) {
+	#ifdef DBG_MALLOC
+		LM_CRIT("freeing already freed %s pointer (%p), first free: "
+		        "%s: %s(%ld) - aborting\n", qm->name, p,
+		        f->file, f->func, f->line);
+		abort();
+	#else
+		LM_CRIT("freeing already freed %s pointer (%p) - skipping!\n",
+		        qm->name, p);
+		return;
+	#endif
+	}
+#endif
 	#ifdef DBG_MALLOC
 	LM_GEN1(memlog, "freeing block alloc'ed from %s: %s(%ld)\n", f->file, f->func,
 			f->line);
@@ -496,7 +520,7 @@ join:
 
 	n = FRAG_NEXT(f);
 
-	if (((char*)n < (char*)qm->last_frag) &&  n->prev )
+	if (((char*)n < (char*)qm->last_frag) &&  frag_is_free(n) )
 	{
 
 		fm_remove_free(qm, n);
@@ -512,6 +536,12 @@ join:
 	}
 
 no_join:
+
+#ifdef DBG_MALLOC
+	f->file = file;
+	f->func = func;
+	f->line = line;
+#endif
 
 	fm_insert_free(qm, f);
 #if defined(DBG_MALLOC) || defined(STATISTICS)
@@ -586,7 +616,7 @@ void* fm_realloc(struct fm_block* qm, void* p, unsigned long size)
 		diff=size-f->size;
 		n=FRAG_NEXT(f);
 
-		if (((char*)n < (char*)qm->last_frag) &&  n->prev &&
+		if (((char*)n < (char*)qm->last_frag) && frag_is_free(n) &&
 		 ((n->size+FRAG_OVERHEAD)>=diff)){
 
 			fm_remove_free(qm,n);
@@ -691,6 +721,9 @@ void fm_status(struct fm_block* qm)
 			}
 
 	LM_GEN1(memdump, " dumping summary of all alloc'ed. fragments:\n");
+	LM_GEN1(memdump, "------------+---------------------------------------\n");
+	LM_GEN1(memdump, "total_bytes | num_allocations x [file: func, line]\n");
+	LM_GEN1(memdump, "------------+---------------------------------------\n");
 	for(i=0; i < DBG_HASH_SIZE; i++) {
 		it = allocd[i];
 		while (it) {
@@ -699,6 +732,7 @@ void fm_status(struct fm_block* qm)
 			it = it->next;
 		}
 	}
+	LM_GEN1(memdump, "----------------------------------------------------\n");
 
 	dbg_ht_free(allocd);
 #endif

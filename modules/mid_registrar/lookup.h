@@ -34,8 +34,6 @@
 
 #include "../../parser/msg_parser.h"
 
-int mid_reg_lookup(struct sip_msg* _m, char* _t, char* _f, char* _s);
-
-int get_match_token(str *uri, str *out_tok, struct sip_uri *out_puri, int *out_idx);
+int mid_reg_lookup(struct sip_msg* req, char* _t, char* _f, char* _s);
 
 #endif /* __MID_REG_LOOKUP_ */

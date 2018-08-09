@@ -60,6 +60,7 @@
 #include "t_fwd.h"
 #include "fix_lumps.h"
 #include "config.h"
+#include "cluster.h"
 #include "../../msg_callbacks.h"
 #include "../../mod_fix.h"
 
@@ -227,10 +228,14 @@ static inline char *print_uac_request(struct sip_msg *i_req, unsigned int *len,
 		struct socket_info *send_sock, enum sip_protos proto )
 {
 	char *buf;
+	str *cid = NULL;
+
+	if (1/* TODO: check if the cid should be used */)
+		cid = tm_via_cid();
 
 	/* build the shm buffer now */
 	buf=build_req_buf_from_sip_req( i_req, len, send_sock, proto,
-			MSG_TRANS_SHM_FLAG);
+			cid, MSG_TRANS_SHM_FLAG);
 	if (!buf) {
 		LM_ERR("no more shm_mem\n");
 		ser_error=E_OUT_OF_MEM;
@@ -518,6 +523,7 @@ int add_phony_uac( struct cell *t)
 
 	t->uac[branch].request.my_T = t;
 	t->uac[branch].request.branch = branch;
+	t->uac[branch].flags = T_UAC_IS_PHONY;
 
 	/* in invalid proto will prevent adding this retransmission buffer
 	 * to the retransmission timer (there is nothing to retransmit here :P */
@@ -543,15 +549,10 @@ int add_phony_uac( struct cell *t)
 
 static int _reason_avp_id = 0;
 
-int t_add_reason(struct sip_msg *msg, char *val)
+int t_set_reason(struct sip_msg *msg, str *val)
 {
 	str avp_name = str_init("_reason_avp_internal");
 	int_str reason;
-
-	if (fixup_get_svalue(msg, (gparam_p)val, &reason.s)!=0) {
-		LM_ERR("invalid reason value\n");
-		return -1;
-	}
 
 	if (_reason_avp_id==0) {
 		if (parse_avp_spec( &avp_name, &_reason_avp_id) ) {
@@ -560,25 +561,68 @@ int t_add_reason(struct sip_msg *msg, char *val)
 		}
 	}
 
+	reason.s = *val;
 	if (add_avp( AVP_VAL_STR, _reason_avp_id, reason)!=0) {
 		LM_ERR("failed to add the internal reason AVP\n");
 		return -1;
 	}
-
 	return 1;
 }
 
 
-void cancel_invite(struct sip_msg *cancel_msg,
-					struct cell *t_cancel, struct cell *t_invite, int locked)
+int t_add_reason(struct sip_msg *msg, char *val)
+{
+	str reason;
+
+	if (fixup_get_svalue(msg, (gparam_p)val, &reason)!=0) {
+		LM_ERR("invalid reason value\n");
+		return -1;
+	}
+
+	return t_set_reason(msg, &reason);
+}
+
+void get_cancel_reason(struct sip_msg *msg, int flags, str *reason)
 {
 #define CANCEL_REASON_SIP_487  \
 	"Reason: SIP;cause=487;text=\"ORIGINATOR_CANCEL\"" CRLF
+	int_str avp_reason;
+	struct hdr_field *hdr;
+
+	reason->s = NULL;
+	reason->len = 0;
+
+	if (search_first_avp( AVP_VAL_STR, _reason_avp_id, &avp_reason, NULL)) {
+		*reason = avp_reason.s;
+	} else {
+		/* propagate the REASON flag ? */
+		if ( flags&T_CANCEL_REASON_FLAG ) {
+			/* look for the Reason header */
+			if (parse_headers(msg, HDR_EOH_F, 0)<0) {
+				LM_ERR("failed to parse all hdrs - ignoring Reason hdr\n");
+				} else {
+				hdr = get_header_by_static_name(msg, "Reason");
+				if (hdr!=NULL) {
+					reason->s = hdr->name.s;
+					reason->len = hdr->len;
+				}
+			}
+		}
+	}
+
+	/* if no reason, use NORMAL CLEARING */
+	if (reason->s == NULL) {
+		reason->s = CANCEL_REASON_SIP_487;
+		reason->len = sizeof(CANCEL_REASON_SIP_487) - 1;
+	}
+}
+
+void cancel_invite(struct sip_msg *cancel_msg,
+					struct cell *t_cancel, struct cell *t_invite, int locked)
+{
 
 	branch_bm_t cancel_bitmap;
 	str reason;
-	struct hdr_field *hdr;
-	int_str avp_reason;
 
 	cancel_bitmap=0;
 
@@ -590,32 +634,7 @@ void cancel_invite(struct sip_msg *cancel_msg,
 	else
 		t_reply( t_cancel, cancel_msg, 200, &reason );
 
-	reason.s = NULL;
-	reason.len = 0;
-
-	if (search_first_avp( AVP_VAL_STR, _reason_avp_id, &avp_reason, NULL)) {
-		reason = avp_reason.s;
-	} else {
-		/* propagate the REASON flag ? */
-		if ( t_cancel->flags&T_CANCEL_REASON_FLAG ) {
-			/* look for the Reason header */
-			if (parse_headers(cancel_msg, HDR_EOH_F, 0)<0) {
-				LM_ERR("failed to parse all hdrs - ignoring Reason hdr\n");
-				} else {
-				hdr = get_header_by_static_name(cancel_msg, "Reason");
-				if (hdr!=NULL) {
-					reason.s = hdr->name.s;
-					reason.len = hdr->len;
-				}
-			}
-		}
-	}
-
-	/* if no reason, use NORMAL CLEARING */
-	if (reason.s == NULL) {
-		reason.s = CANCEL_REASON_SIP_487;
-		reason.len = sizeof(CANCEL_REASON_SIP_487) - 1;
-	}
+	get_cancel_reason(cancel_msg, cancel_msg->flags, &reason);
 
 	/* generate local cancels for all branches */
 	which_cancel(t_invite, &cancel_bitmap );
@@ -723,8 +742,15 @@ int t_forward_nonack( struct cell *t, struct sip_msg* p_msg ,
 	/* branches added */
 	added_branches=0;
 	/* branch to begin with */
-	if (reset_bcounter)
+	if (reset_bcounter) {
 		t->first_branch=t->nr_of_outgoings;
+		/* check if the previous branch is a PHONY one and if yes
+		 * keep it in the set of active branches; that means the 
+		 * transaction had a t_wait_for_new_branches() call prior to relay() */
+		if ( t->first_branch>0 &&
+		(t->uac[t->first_branch-1].flags & T_UAC_IS_PHONY) )
+			t->first_branch--;
+	}
 
 	/* as first branch, use current uri */
 	current_uri = *GET_RURI(p_msg);
@@ -844,16 +870,18 @@ int t_forward_nonack( struct cell *t, struct sip_msg* p_msg ,
 static int ul_contact_event_to_msg(struct sip_msg *req)
 {
 	static enum ul_attrs { UL_URI, UL_RECEIVED, UL_PATH, UL_QVAL,
-		UL_SOCKET, UL_BFLAGS, UL_MAX } ul_attr;
+		UL_SOCKET, UL_BFLAGS, UL_ATTR, UL_MAX } ul_attr;
 	/* keep the names of the AVPs aligned with the contact-related events
 	 * from USRLOC module !!!! */
 	static str ul_names[UL_MAX]= {str_init("uri"),str_init("received"),
 	                              str_init("path"),str_init("qval"),
-	                              str_init("socket"),str_init("bflags")};
-	static int avp_ids[UL_MAX] = { -1, -1, -1, -1, -1, -1};
+	                              str_init("socket"),str_init("bflags"),
+	                              str_init("attr") };
+	static int avp_ids[UL_MAX] = { -1, -1, -1, -1, -1, -1, -1};
 	int_str vals[UL_MAX];
 	int proto, port;
 	str host;
+	str path_dst;
 
 	if (avp_ids[0]==-1) {
 		/* init the avp IDs mapping us on the UL event */
@@ -878,13 +906,14 @@ static int ul_contact_event_to_msg(struct sip_msg *req)
 
 	/* OK, we have the values, lets inject them into the SIP msg */
 	LM_DBG("injecting new branch: uri=<%.*s>, received=<%.*s>,"
-		"path=<%.*s>, qval=%d, socket=<%.*s>, bflags=%X\n",
+		"path=<%.*s>, qval=%d, socket=<%.*s>, bflags=%X, attr=<%.*s>\n",
 		vals[UL_URI].s.len, vals[UL_URI].s.s,
 		vals[UL_RECEIVED].s.len, vals[UL_RECEIVED].s.s,
 		vals[UL_PATH].s.len, vals[UL_PATH].s.s,
 		vals[UL_QVAL].n,
 		vals[UL_SOCKET].s.len, vals[UL_SOCKET].s.s,
-		vals[UL_BFLAGS].n);
+		vals[UL_BFLAGS].n,
+		vals[UL_ATTR].s.len, vals[UL_ATTR].s.s);
 
 	/* contact URI goes as RURI */
 	if (set_ruri( req, &vals[UL_URI].s)<0) {
@@ -892,18 +921,26 @@ static int ul_contact_event_to_msg(struct sip_msg *req)
 		return -1;
 	}
 
+	/* contact PATH goes as path */
+	if (vals[UL_PATH].s.len) {
+		if (get_path_dst_uri(&vals[UL_PATH].s, &path_dst) < 0) {
+			LM_ERR("failed to get dst_uri for Path\n");
+			return -1;
+		}
+		if (set_dst_uri( req, &path_dst) < 0) {
+			LM_ERR("failed to set dst_uri of Path\n");
+			return -1;
+		}
+
+		if (set_path_vector( req, &vals[UL_PATH].s)<0) {
+			LM_ERR("failed to set PATH\n");
+			return -1;
+		}
+	} else
 	/* contact RECEIVED goes as DURI */
 	if (vals[UL_RECEIVED].s.len) {
 		if (set_dst_uri( req, &vals[UL_RECEIVED].s)<0) {
 			LM_ERR("failed to set DST URI\n");
-			return -1;
-		}
-	}
-
-	/* contact PATH goes as path */
-	if (vals[UL_PATH].s.len) {
-		if (set_path_vector( req, &vals[UL_PATH].s)<0) {
-			LM_ERR("failed to set PATH\n");
 			return -1;
 		}
 	}
@@ -990,11 +1027,24 @@ int t_inject_branch( struct cell *t, struct sip_msg *msg, int flags)
 			goto error;
 		}
 	} else {
-		/* use the dset array, but fetch the first branch for script msg 
-		 * into the faked msg (that will be used by inject function) */
-		if (dst_to_msg( msg, &faked_req )<0) {
-			LM_ERR("failed to grab new branch from Event\n");
-			goto error;
+		/* use the RURI+dset array as destinations to be injected */
+		if (msg->first_line.type==SIP_REQUEST) {
+			/* take the RURI branch from the script msg and move it
+			 * into the faked msg (that will be used by t_fwd function) */
+			if (dst_to_msg( msg, &faked_req )<0) {
+				LM_ERR("failed to grab new branch from Event\n");
+				goto error;
+			}
+		} else {
+			/* current message is a reply, so take the first branch from dset
+			 * and move it into the faked msg (that will be used by t_fwd 
+			 * function)*/
+			if (move_branch_to_ruri( 0, &faked_req)<0) {
+				LM_ERR("no branch found to be moved as new destination\n");
+				goto error;
+			}
+			/* remove it from set */
+			remove_branch(0);
 		}
 	}
 
@@ -1058,7 +1108,7 @@ int t_replicate(struct sip_msg *p_msg, str *dst, int flags)
 			LM_CRIT("BUG - undefined transaction in failure route\n");
 			return -1;
 		}
-		return t_relay_to( p_msg, NULL, flags|TM_T_REPLY_repl_FLAG);
+		return t_relay_to( p_msg, NULL, flags|TM_T_RELAY_repl_FLAG);
 	} else {
 		/* transaction already created */
 		if (p_msg->REQ_METHOD==METHOD_ACK)

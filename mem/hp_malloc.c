@@ -178,14 +178,23 @@ unsigned long frag_size(void* p){
 }
 
 #ifdef SHM_EXTRA_STATS
+#include "module_info.h"
 void set_stat_index (void *ptr, unsigned long idx) {
 	struct hp_frag *f;
+
+	if (!ptr)
+		return;
+
 	f = (struct hp_frag *)((char*)ptr - sizeof(struct hp_frag));
 	f->statistic_index = idx;
 }
 
 unsigned long get_stat_index(void *ptr) {
 	struct hp_frag *f;
+
+	if (!ptr)
+		return GROUP_IDX_INVALID;
+
 	f = (struct hp_frag *)((char*)ptr - sizeof(struct hp_frag));
 	return f->statistic_index;
 }
@@ -1463,6 +1472,9 @@ void hp_status(struct hp_block *hpb)
 			}
 
 	LM_GEN1(memdump, "dumping summary of all alloc'ed. fragments:\n");
+	LM_GEN1(memdump, "------------+---------------------------------------\n");
+	LM_GEN1(memdump, "total_bytes | num_allocations x [file: func, line]\n");
+	LM_GEN1(memdump, "------------+---------------------------------------\n");
 	for(i=0; i < DBG_HASH_SIZE; i++) {
 		it = allocd[i];
 		while (it) {
@@ -1471,6 +1483,7 @@ void hp_status(struct hp_block *hpb)
 			it = it->next;
 		}
 	}
+	LM_GEN1(memdump, "----------------------------------------------------\n");
 
 	dbg_ht_free(allocd);
 #endif

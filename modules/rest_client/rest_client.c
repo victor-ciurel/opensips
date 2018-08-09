@@ -36,6 +36,8 @@
 #include "../../lib/list.h"
 #include "../../trace_api.h"
 
+#include "../tls_mgm/api.h"
+
 #include "rest_methods.h"
 
 /*
@@ -58,6 +60,11 @@ int _async_resume_retr_itv = 100; /* us */
 /* libcurl enables these by default */
 int ssl_verifypeer = 1;
 int ssl_verifyhost = 1;
+
+/* see curl.h or https://curl.haxx.se/libcurl/c/CURLOPT_HTTP_VERSION.html */
+int curl_http_version = CURL_HTTP_VERSION_NONE;
+
+struct tls_mgm_binds tls_api;
 
 /* trace parameters for this module */
 #define REST_TRACE_API_MODULE "proto_hep"
@@ -98,6 +105,8 @@ static int w_async_rest_put(struct sip_msg *msg, async_ctx *ctx,
 					 char *body_pv, char *ctype_pv, char *code_pv);
 
 static int w_rest_append_hf(struct sip_msg *msg, char *gp_hfv);
+static int w_rest_init_client_tls(struct sip_msg *msg, char *gp_tls_dom);
+int validate_curl_http_version(const int *http_version);
 
 /* module dependencies */
 static dep_export_t deps = {
@@ -127,36 +136,19 @@ static acmd_export_t acmds[] = {
  * Exported functions
  */
 static cmd_export_t cmds[] = {
-	{ "rest_get",(cmd_function)w_rest_get, 2, fixup_rest_get, 0,
-		REQUEST_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_get",(cmd_function)w_rest_get, 3, fixup_rest_get, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_get",(cmd_function)w_rest_get, 4, fixup_rest_get, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_post",(cmd_function)w_rest_post, 4, fixup_rest_post, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_post",(cmd_function)w_rest_post, 5, fixup_rest_post, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_post",(cmd_function)w_rest_post, 6, fixup_rest_post, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_put",(cmd_function)w_rest_put, 4, fixup_rest_put, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_put",(cmd_function)w_rest_put, 5, fixup_rest_put, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
-	{ "rest_put",(cmd_function)w_rest_put, 6, fixup_rest_put, 0,
-		REQUEST_ROUTE|ONREPLY_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
+	{ "rest_get",(cmd_function)w_rest_get, 2, fixup_rest_get, 0, ALL_ROUTES },
+	{ "rest_get",(cmd_function)w_rest_get, 3, fixup_rest_get, 0, ALL_ROUTES },
+	{ "rest_get",(cmd_function)w_rest_get, 4, fixup_rest_get, 0, ALL_ROUTES },
+	{ "rest_post",(cmd_function)w_rest_post, 4, fixup_rest_post, 0, ALL_ROUTES },
+	{ "rest_post",(cmd_function)w_rest_post, 5, fixup_rest_post, 0, ALL_ROUTES },
+	{ "rest_post",(cmd_function)w_rest_post, 6, fixup_rest_post, 0, ALL_ROUTES },
+	{ "rest_put",(cmd_function)w_rest_put, 4, fixup_rest_put, 0, ALL_ROUTES },
+	{ "rest_put",(cmd_function)w_rest_put, 5, fixup_rest_put, 0, ALL_ROUTES },
+	{ "rest_put",(cmd_function)w_rest_put, 6, fixup_rest_put, 0, ALL_ROUTES },
 	{ "rest_append_hf",(cmd_function)w_rest_append_hf, 1, fixup_spve_null, 0,
-		REQUEST_ROUTE|FAILURE_ROUTE|BRANCH_ROUTE|
-		ONREPLY_ROUTE|STARTUP_ROUTE|TIMER_ROUTE },
+		ALL_ROUTES },
+	{ "rest_init_client_tls",(cmd_function)w_rest_init_client_tls, 1,
+		fixup_spve_null, 0, ALL_ROUTES },
 	{ 0, 0, 0, 0, 0, 0 }
 };
 
@@ -172,6 +164,7 @@ static param_export_t params[] = {
 	{ "ssl_capath",			STR_PARAM, &ssl_capath			},
 	{ "ssl_verifypeer",		INT_PARAM, &ssl_verifypeer		},
 	{ "ssl_verifyhost",		INT_PARAM, &ssl_verifyhost		},
+	{ "curl_http_version",	INT_PARAM, &curl_http_version	},
 	{ 0, 0, 0 }
 };
 
@@ -296,19 +289,29 @@ static int mod_init(void)
 	INIT_LIST_HEAD(&multi_pool);
 
 	/* try loading the trace api */
-	if ( register_trace_type ) {
+	if (register_trace_type) {
 		rest_proto_id = register_trace_type(rest_id_s);
 		if ( global_trace_api ) {
-			memcpy( &tprot, global_trace_api, sizeof(trace_proto_t));
+			memcpy(&tprot, global_trace_api, sizeof tprot);
 		} else {
-			memset( &tprot, 0, sizeof(trace_proto_t));
-			if ( trace_prot_bind( REST_TRACE_API_MODULE, &tprot )) {
+			memset(&tprot, 0, sizeof tprot);
+			if (trace_prot_bind( REST_TRACE_API_MODULE, &tprot))
 				LM_DBG("Can't bind <%s>!\n", REST_TRACE_API_MODULE);
-			}
 		}
 	} else {
-		memset( &tprot, 0, sizeof(trace_proto_t));
+		memset(&tprot, 0, sizeof tprot);
 	}
+
+	if (is_script_func_used("rest_init_client_tls", -1)) {
+		if (load_tls_mgm_api(&tls_api) != 0) {
+			LM_ERR("failed to load the tls_mgm API! "
+			       "Is the tls_mgm module loaded?\n");
+			return -1;
+		}
+	}
+
+	if (!validate_curl_http_version(&curl_http_version))
+		return -1;
 
 	LM_INFO("Module initialized!\n");
 
@@ -373,6 +376,34 @@ static int fixup_rest_put(void **param, int param_no)
 		LM_ERR("Too many parameters!\n");
 		return -1;
 	}
+}
+
+int validate_curl_http_version(const int *http_version)
+{
+	switch (*http_version) {
+	case CURL_HTTP_VERSION_NONE:
+	case CURL_HTTP_VERSION_1_0:
+	case CURL_HTTP_VERSION_1_1:
+		break;
+#if (LIBCURL_VERSION_NUM >= 0x072100)
+	case CURL_HTTP_VERSION_2_0:
+		break;
+#endif
+#if (LIBCURL_VERSION_NUM >= 0x072f00)
+	case CURL_HTTP_VERSION_2TLS:
+		break;
+#endif
+#if (LIBCURL_VERSION_NUM >= 0x073100)
+	case CURL_HTTP_VERSION_2_PRIOR_KNOWLEDGE:
+		break;
+#endif
+	default:
+		LM_ERR("invalid or unsupported libcurl http version (%d)\n",
+		       *http_version);
+		return 0;
+	}
+
+	return 1;
 }
 
 /**************************** Module functions *******************************/
@@ -686,4 +717,16 @@ static int w_rest_append_hf(struct sip_msg *msg, char *gp_hfv)
 	}
 
 	return rest_append_hf_method(msg, &hfv);
+}
+
+static int w_rest_init_client_tls(struct sip_msg *msg, char *gp_tls_dom)
+{
+	str tls_client_dom;
+
+	if (fixup_get_svalue(msg, (gparam_p)gp_tls_dom, &tls_client_dom) != 0) {
+		LM_ERR("cannot retrieve header field value\n");
+		return -1;
+	}
+
+	return rest_init_client_tls(msg, &tls_client_dom);
 }

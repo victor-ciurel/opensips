@@ -17,6 +17,9 @@ LIBS=
 ifeq ($(CC_NAME), gcc)
 	DEFS+=-Wno-unused -Wno-redundant-decls
 endif
+ifeq ($(CC_NAME), clang)
+	DEFS+=-Wno-unused -Wno-redundant-decls
+endif
 
 ifeq ($(PERLLDOPTS),)
 	LIBS+=$(shell perl -MExtUtils::Embed -e ldopts)
@@ -30,6 +33,10 @@ else
 	DEFS+=$(PERLCCOPTS)
 endif
 
+# if perl requires _FORTIFY_SOURCE, we need to enable optimizations
+ifneq (,$(findstring -D_FORTIFY_SOURCE,$(DEFS)))
+	DEFS+=-O2
+endif
 
 include ../../Makefile.modules
 

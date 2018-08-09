@@ -58,7 +58,7 @@
 #include "net/proto_udp/proto_udp_handler.h"
 #include "net/proto_tcp/proto_tcp_handler.h"
 
-
+#include "test/unit_tests.h"
 
 struct sr_module* modules=0;
 
@@ -89,10 +89,9 @@ struct sr_module* modules=0;
 	extern struct module_exports sl_exports;
 #endif
 
-char *mpath=NULL;
-char mpath_buf[256];
-int  mpath_len = 0;
-
+static const char *mpath;
+static char mpath_buf[256];
+static int  mpath_len;
 
 /* initializes statically built (compiled in) modules*/
 int register_builtin_modules(void)
@@ -344,6 +343,18 @@ static int load_static_module(char *path)
 	}
 
 	return -1;
+}
+
+void set_mpath(const char *new_mpath)
+{
+	mpath = new_mpath;
+	strcpy(mpath_buf, new_mpath);
+	mpath_len = strlen(mpath);
+	if (mpath_len == 0 || mpath_buf[mpath_len - 1] != '/') {
+		mpath_buf[mpath_len] = '/';
+		mpath_len++;
+		mpath_buf[mpath_len] = '\0';
+	}
 }
 
 /* returns 0 on success , <0 on error */
@@ -684,6 +695,11 @@ int init_modules(void)
 {
 	int ret;
 
+	if (testing_framework) {
+		init_unit_tests();
+		solve_module_dependencies(modules);
+	}
+
 	ret = init_mod(modules, 0);
 
 	free_module_dependencies(modules);
@@ -751,7 +767,9 @@ int start_module_procs(void)
 			for ( l=0; l<m->exports->procs[n].no ; l++) {
 				LM_DBG("forking process \"%s\"/%d for module %s\n",
 					m->exports->procs[n].name, l, m->exports->name);
-				x = internal_fork(m->exports->procs[n].name);
+				x = internal_fork( m->exports->procs[n].name,
+						((m->exports->procs[n].flags&PROC_FLAG_HAS_IPC) ?
+						0 : OSS_FORK_NO_IPC)|OSS_FORK_IS_EXTRA );
 				if (x<0) {
 					LM_ERR("failed to fork process \"%s\"/%d for module %s\n",
 						m->exports->procs[n].name, l, m->exports->name);

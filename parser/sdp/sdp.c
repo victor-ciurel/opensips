@@ -29,6 +29,7 @@
 
 
 #include "../../ut.h"
+#include "../../trim.h"
 #include "../../mem/mem.h"
 #include "../../mem/shm_mem.h"
 #include "../parser_f.h"
@@ -64,7 +65,7 @@ static inline sdp_info_t* new_sdp(void)
 /**
  * Alocate a new session cell.
  */
-static inline sdp_session_cell_t *add_sdp_session(sdp_info_t* _sdp, int session_num, str* cnt_disp)
+static inline sdp_session_cell_t *add_sdp_session(sdp_info_t* _sdp, int session_num, str* cnt_disp, str body)
 {
 	sdp_session_cell_t *session;
 	int len;
@@ -83,6 +84,8 @@ static inline sdp_session_cell_t *add_sdp_session(sdp_info_t* _sdp, int session_
 		session->cnt_disp.len = cnt_disp->len;
 	}
 
+	session->body = body;
+
 	/* Insert the new session */
 	session->next = _sdp->sessions;
 	_sdp->sessions = session;
@@ -95,7 +98,7 @@ static inline sdp_session_cell_t *add_sdp_session(sdp_info_t* _sdp, int session_
  * Allocate a new stream cell.
  */
 static inline sdp_stream_cell_t *add_sdp_stream(sdp_session_cell_t* _session, int stream_num,
-		str* media, str* port, str* transport, str* payloads, int is_rtp, int pf, str* sdp_ip)
+		str* media, str* port, str* transport, str* payloads, int is_rtp, int pf, str* sdp_ip, str body)
 {
 	sdp_stream_cell_t *stream;
 	int len;
@@ -124,6 +127,8 @@ static inline sdp_stream_cell_t *add_sdp_stream(sdp_session_cell_t* _session, in
 	stream->pf = pf;
 	stream->ip_addr.s = sdp_ip->s;
 	stream->ip_addr.len = sdp_ip->len;
+
+	stream->body = body;
 
 	/* Insert the new stream */
 	stream->next = _session->streams;
@@ -318,6 +323,45 @@ sdp_payload_attr_t* get_sdp_payload4index(sdp_stream_cell_t *stream, int index)
 	return stream->p_payload_attr[index];
 }
 
+/**
+ * Add SDP attribute.
+ */
+static inline int add_sdp_attr(str line, sdp_attr_t **list)
+{
+	char *p;
+	static sdp_attr_t *last;
+	sdp_attr_t *a = pkg_malloc(sizeof *a);
+	if (!a) {
+		LM_ERR("No memory left!\n");
+		return -1;
+	}
+	memset(a, 0, sizeof *a);
+
+	/* check for value separator : */
+	p = q_memchr(line.s + 2, ':', line.len - 2);
+	if (p) {
+		a->attribute.s = line.s + 2;
+		a->attribute.len = p - a->attribute.s;
+		/* skip the separator */
+		a->value.s = p + 1;
+		a->value.len = line.len - (a->value.s - line.s);
+		trim(&a->value);
+	} else {
+		a->attribute.s = line.s + 2;
+		a->attribute.len = line.len - 2;
+	}
+	trim(&a->attribute);
+
+	/* link it to the list */
+	if (*list)
+		last->next = a;
+	else
+		*list = a;
+	/* we remember the last object added */
+	last = a;
+
+	return 0;
+}
 
 /**
  * SDP parser method.
@@ -370,7 +414,7 @@ int parse_sdp_session(str *sdp_body, int session_num, str *cnt_disp, sdp_info_t*
 		return -1;
 	}
 	/* Allocate a session cell */
-	session = add_sdp_session(_sdp, session_num, cnt_disp);
+	session = add_sdp_session(_sdp, session_num, cnt_disp, body);
 	if (session == NULL) return -1;
 
 	/* Get origin IP */
@@ -402,6 +446,22 @@ int parse_sdp_session(str *sdp_body, int session_num, str *cnt_disp, sdp_info_t*
 		tmpstr1.s = b1p;
 		tmpstr1.len = m1p - b1p;
 		extract_bwidth(&tmpstr1, &session->bw_type, &session->bw_width);
+	}
+
+	/* from b1p or o1p down to m1p we have session a= attributes */
+	a1p = find_sdp_line((b1p?b1p:o1p), m1p, 'a');
+	a2p = a1p;
+	for (;;) {
+		a1p = a2p;
+		if (a1p == NULL || a1p >= m1p)
+			break;
+		a2p = find_next_sdp_line(a1p + 1, m1p, 'a', m1p);
+
+		tmpstr1.s = a1p;
+		tmpstr1.len = a2p - a1p;
+
+		if (add_sdp_attr(tmpstr1, &session->attr) < 0)
+			return -1;
 	}
 
 	/* Have session. Iterate media descriptions in session */
@@ -442,7 +502,7 @@ int parse_sdp_session(str *sdp_body, int session_num, str *cnt_disp, sdp_info_t*
 		}
 
 		/* Allocate a stream cell */
-		stream = add_sdp_stream(session, stream_num, &sdp_media, &sdp_port, &sdp_transport, &sdp_payload, is_rtp, pf, &sdp_ip);
+		stream = add_sdp_stream(session, stream_num, &sdp_media, &sdp_port, &sdp_transport, &sdp_payload, is_rtp, pf, &sdp_ip, tmpstr1);
 		if (stream == 0) return -1;
 
 		/* increment total number of streams */
@@ -528,7 +588,12 @@ int parse_sdp_session(str *sdp_body, int session_num, str *cnt_disp, sdp_info_t*
 			/*	LM_DBG("else: `%.*s'\n", tmpstr1.len, tmpstr1.s); */
 			}
 
+			tmpstr1.s = a2p;
 			a2p = find_next_sdp_line(a1p-1, m2p, 'a', m2p);
+			tmpstr1.len = a2p - tmpstr1.s;
+
+			if (add_sdp_attr(tmpstr1, &stream->attr) < 0)
+				return -1;
 		}
 		/* Let's detect if the media is on hold by checking
 		 * the good old "0.0.0.0" connection address */
@@ -536,11 +601,11 @@ int parse_sdp_session(str *sdp_body, int session_num, str *cnt_disp, sdp_info_t*
 			if (stream->ip_addr.s && stream->ip_addr.len) {
 				if (stream->ip_addr.len == HOLD_IP_LEN &&
 					strncmp(stream->ip_addr.s, HOLD_IP_STR, HOLD_IP_LEN)==0)
-					stream->is_on_hold = 1;
+					stream->is_on_hold = RFC2543_HOLD;
 			} else if (session->ip_addr.s && session->ip_addr.len) {
 				if (session->ip_addr.len == HOLD_IP_LEN &&
 					strncmp(session->ip_addr.s, HOLD_IP_STR, HOLD_IP_LEN)==0)
-					stream->is_on_hold = 1;
+					stream->is_on_hold = RFC2543_HOLD;
 			}
 		}
 		++stream_num;
@@ -577,6 +642,12 @@ sdp_info_t* parse_sdp(struct sip_msg* _m)
 		if ( part->mime != ((TYPE_APPLICATION<<16)+SUBTYPE_SDP) )
 			continue;
 
+		if (part->parsed) {
+			if (!ret)
+				ret = part->parsed;
+			continue;
+		}
+
 		if ( (sdp=new_sdp())==NULL ) {
 			LM_ERR("Can't create new sdp, skipping\n");
 		} else {
@@ -595,15 +666,12 @@ sdp_info_t* parse_sdp(struct sip_msg* _m)
 	return ret;
 }
 
-
-/**
- * Free all memory.
- */
-void free_sdp(sdp_info_t* sdp)
+void free_sdp_content(sdp_info_t* sdp)
 {
 	sdp_session_cell_t *session, *l_session;
 	sdp_stream_cell_t *stream, *l_stream;
 	sdp_payload_attr_t *payload, *l_payload;
+	sdp_attr_t *attr, *l_attr;
 
 	LM_DBG("sdp = %p\n", sdp);
 	if (sdp == NULL) return;
@@ -613,6 +681,12 @@ void free_sdp(sdp_info_t* sdp)
 	while (session) {
 		l_session = session;
 		session = session->next;
+		attr = l_session->attr;
+		while (attr) {
+			l_attr = attr;
+			attr = attr->next;
+			pkg_free(l_attr);
+		}
 		stream = l_session->streams;
 		while (stream) {
 			l_stream = stream;
@@ -623,6 +697,12 @@ void free_sdp(sdp_info_t* sdp)
 				payload = payload->next;
 				pkg_free(l_payload);
 			}
+			attr = l_stream->attr;
+			while (attr) {
+				l_attr = attr;
+				attr = attr->next;
+				pkg_free(l_attr);
+			}
 			if (l_stream->p_payload_attr) {
 				pkg_free(l_stream->p_payload_attr);
 			}
@@ -630,7 +710,6 @@ void free_sdp(sdp_info_t* sdp)
 		}
 		pkg_free(l_session);
 	}
-	pkg_free(sdp);
 }
 
 void print_sdp_stream(sdp_stream_cell_t *stream, int level)

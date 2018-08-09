@@ -31,6 +31,7 @@
 #include "../mem/mem.h"
 #include "../mem/meminfo.h"
 #include "../str.h"
+#include "../ut.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -81,7 +82,7 @@ void cachedb_free_url(struct cachedb_url *list)
 
 static struct cachedb_engine_t* cachedb_list = NULL;
 
-static inline cachedb_engine* lookup_cachedb(str *name)
+cachedb_engine* lookup_cachedb(str *name)
 {
 	struct cachedb_engine_t* cde_node;
 
@@ -664,8 +665,10 @@ cachedb_con* cachedb_do_init(str *url,void* (*new_connection)(struct cachedb_id 
 		}
 
 		cachedb_pool_insert((cachedb_pool_con *)con);
-	} else
+	} else {
 		LM_DBG("connection already in pool\n");
+		free_cachedb_id(id);
+	}
 
 	res->data = con;
 	return res;

@@ -1,4 +1,4 @@
-INSERT INTO version (table_name, table_version) values ('location','1011');
+INSERT INTO version (table_name, table_version) values ('location','1013');
 CREATE TABLE location (
     contact_id BIGSERIAL PRIMARY KEY NOT NULL,
     username VARCHAR(64) DEFAULT '' NOT NULL,
@@ -6,7 +6,7 @@ CREATE TABLE location (
     contact VARCHAR(255) DEFAULT '' NOT NULL,
     received VARCHAR(128) DEFAULT NULL,
     path VARCHAR(255) DEFAULT NULL,
-    expires TIMESTAMP WITHOUT TIME ZONE DEFAULT '2020-05-28 21:32:15' NOT NULL,
+    expires INTEGER NOT NULL,
     q REAL DEFAULT 1.0 NOT NULL,
     callid VARCHAR(255) DEFAULT 'Default-Call-ID' NOT NULL,
     cseq INTEGER DEFAULT 13 NOT NULL,
@@ -17,6 +17,7 @@ CREATE TABLE location (
     socket VARCHAR(64) DEFAULT NULL,
     methods INTEGER DEFAULT NULL,
     sip_instance VARCHAR(255) DEFAULT NULL,
+    kv_store TEXT DEFAULT NULL,
     attr VARCHAR(255) DEFAULT NULL
 );
 

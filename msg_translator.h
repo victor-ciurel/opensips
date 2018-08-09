@@ -46,12 +46,15 @@
 #define MSG_TRANS_SHM_FLAG    (1<<0)
 #define MSG_TRANS_NOVIA_FLAG  (1<<1)
 
+#define OSS_BOUNDARY "OSS-unique-boundary-42"
 
 //#define MAX_CONTENT_LEN_BUF INT2STR_MAX_LEN /* see ut.h/int2str() */
 
 #include "parser/msg_parser.h"
 #include "ip_addr.h"
+#include "socket_info.h"
 #include "context.h"
+#include "globals.h"
 
 /*! \brief point to some remarkable positions in a SIP message */
 struct bookmark {
@@ -85,9 +88,29 @@ struct hostport {
 		} \
 	} while (0)
 
+static inline str *get_adv_host(struct socket_info *send_sock)
+{
+	if(send_sock->adv_name_str.len)
+		return &(send_sock->adv_name_str);
+	else if (default_global_address.s)
+		return &default_global_address;
+	else
+		return &(send_sock->address_str);
+}
+
+static inline str *get_adv_port(struct socket_info *send_sock)
+{
+	if(send_sock->adv_port_str.len)
+		return &(send_sock->adv_port_str);
+	else if (default_global_port.s)
+		return &default_global_port;
+	else
+		return &(send_sock->port_no_str);
+}
+
 char * build_req_buf_from_sip_req (	struct sip_msg* msg,
 				unsigned int *returned_len, struct socket_info* send_sock,
-				int proto, unsigned int flags);
+				int proto, str *via_params, unsigned int flags);
 
 char * build_res_buf_from_sip_res(	struct sip_msg* msg,
 				unsigned int *returned_len, struct socket_info *sock,int flags);
@@ -111,6 +134,8 @@ int branch_builder( unsigned int hash_index,
 	int branch,
 	/* output value: string and actual length */
 	char *branch_str, int *len );
+
+char *contact_builder(struct socket_info* send_sock, int *ct_len);
 
 /* check if IP address in Via != source IP address of signaling */
 int received_test( struct sip_msg *msg );

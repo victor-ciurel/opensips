@@ -201,12 +201,12 @@ then
 	fi
 fi
 
-get_answer $INSTALL_PRESENCE_TABLES "Install presence related tables? (y/n): "
+get_answer $INSTALL_PRESENCE_TABLES "Install presence related tables? (Y/n): " "y"
 if [ "$ANSWER" = "y" ]; then
 	presence_create $1
 fi
 
-get_answer $INSTALL_EXTRA_TABLES "Install tables for $EXTRA_MODULES? (y/n): "
+get_answer $INSTALL_EXTRA_TABLES "Install tables for $EXTRA_MODULES? (Y/n): " "y"
 if [ "$ANSWER" = "y" ]; then
 	HAS_EXTRA="yes"
 	extra_create $1
@@ -262,7 +262,7 @@ minfo "Extra tables successfully created."
 }  # end extra_create
 
 
-migrate_table () # 4 paremeters (dst_table, dst_cols, src_table, src_cols)
+migrate_table () # 4 parameters (dst_table, dst_cols, src_table, src_cols)
 {
 if [ $# -ne 4 ] ; then
 	echo "param1=$1 param2=$2 param3=$3 param4=$4" 
@@ -414,12 +414,6 @@ migrate_table ${dst_db}.address \
 	${src_db}.address \
 	"?id,?grp,?ip,?mask,?port,?proto,?pattern,?context_info"
 
-## REGISTRAR module
-migrate_table ${dst_db}.aliases \
-	 "id,username,domain,contact,received,path,expires,q,callid,cseq,last_modified,flags,cflags,user_agent,socket,methods,sip_instance,attr" \
- 	 ${src_db}.aliases \
-	 "?id,?username,?domain,?contact,?received,?path,?expires,?q,?callid,?cseq,?last_modified,?flags,?cflags,?user_agent,?socket,?methods,?sip_instance,?attr"
-
 ## RTPPROXY module
 migrate_table ${dst_db}.rtpproxy_sockets \
 	"id,rtpproxy_sock,set_id" \
@@ -442,7 +436,13 @@ migrate_table ${dst_db}.uri \
 migrate_table ${dst_db}.clusterer \
 	"id,cluster_id,node_id,url,description" \
 	${src_db}.clusterer \
-	"?id,?cluster_id,?machine_id,?url,?description"
+	"?id,?cluster_id,?node_id,?url,?description"
+
+## TLS_MGM module
+migrate_table ${dst_db}.tls_mgm \
+	"id,domain,address,type,method,verify_cert,require_cert,certificate,private_key,crl_check_all,crl_dir,ca_list,ca_dir,cipher_list,dh_params,ec_curve" \
+	${src_db}.tls_mgm \
+	"?id,?domain,?address,?type,?method,?verify_cert,?require_cert,?certificate,?private_key,?crl_check_all,?crl_dir,?ca_list,?ca_dir,?cipher_list,?dh_params,?ec_curve"
 
 
 if [ "$HAS_EXTRA" = "yes" ] ; then
@@ -515,7 +515,7 @@ migrate_table ${dst_db}.registrant \
 migrate_table ${dst_db}.sip_trace \
 	"id,time_stamp,callid,trace_attrs,msg,method,status,from_proto,from_ip,from_port,to_proto,to_ip,to_port,fromtag,direction" \
 	${src_db}.sip_trace \
-	"?id,?time_stamp,?callid,?traced_user,?msg,?method,?status,?from_proto,?from_ip,?from_port,?to_proto,?to_ip,?to_port,?fromtag,?direction"
+	"?id,?time_stamp,?callid,?trace_attrs,?msg,?method,?status,?from_proto,?from_ip,?from_port,?to_proto,?to_ip,?to_port,?fromtag,?direction"
 
 ## USERBLACKLIST module
 migrate_table ${dst_db}.userblacklist \
@@ -527,6 +527,28 @@ migrate_table ${dst_db}.globalblacklist \
 	"id,prefix,whitelist,description" \
 	${src_db}.globalblacklist \
 	"?id,?prefix,?whitelist,?description"
+
+## FRAUD_DETECTION module
+migrate_table ${dst_db}.fraud_detection \
+	"ruleid,profileid,prefix,start_hour,end_hour,daysoftheweek,cpm_warning,cpm_critical,call_duration_warning,call_duration_critical,total_calls_warning,total_calls_critical,concurrent_calls_warning,concurrent_calls_critical,sequential_calls_warning,sequential_calls_critical" \
+	${src_db}.fraud_detection \
+	"?ruleid,?profileid,?prefix,?start_hour,?end_hour,?daysoftheweek,?cpm_warning,?cpm_critical,?call_duration_warning,?call_duration_critical,?total_calls_warning,?total_calls_critical,?concurrent_calls_warning,?concurrent_calls_critical,?sequential_calls_warning,?sequential_calls_critical"
+
+## EMERGENCY module
+migrate_table ${dst_db}.emergency_routing \
+	"id,selectiveRoutingID,routingESN,npa,esgwri" \
+	${src_db}.emergency_routing \
+	"?id,?selectiveRoutingID,?routingESN,?npa,?esgwri"
+
+migrate_table ${dst_db}.emergency_report \
+	"id,callid,selectiveRoutingID,routingESN,npa,esgwri,lro,VPC_organizationName,VPC_hostname,VPC_timestamp,result,disposition" \
+	${src_db}.emergency_report \
+	"?id,?callid,?selectiveRoutingID,?routingESN,?npa,?esgwri,?lro,?VPC_organizationName,?VPC_hostname,?VPC_timestamp,?result,?disposition"
+
+migrate_table ${dst_db}.emergency_service_provider \
+	"id,organizationName,hostId,nenaId,contact,certUri,nodeIP,attribution" \
+	${src_db}.emergency_service_provider \
+	"?id,?organizationName,?hostId,?nenaId,?contact,?certUri,?nodeIP,?attribution"
 
 fi
 
